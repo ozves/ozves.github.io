@@ -2,14 +2,35 @@
 <html lang="tr">
 <head>
     <meta charset="UTF-8">
-    <!-- CACHE ÖNLEME EKLENDİ -->
-    <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+    
+    <!-- GÜÇLENDİRİLMİŞ CACHE ÖNLEME -->
+    <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate, max-age=0, pre-check=0, post-check=0">
     <meta http-equiv="Pragma" content="no-cache">
-    <meta http-equiv="Expires" content="0">
+    <meta http-equiv="Expires" content="-1">
+    <meta name="cache-control" content="no-cache">
+    <meta name="expires" content="0">
+    <meta name="pragma" content="no-cache">
+    
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Öğrenci Sınav Uygulaması (Gelişmiş)</title>
-    <script src="https://cdn.tailwindcss.com"></script>
+    <title>Öğrenci Sınav Uygulaması (Gelişmiş) - v1.0</title>
+    
+    <!-- Version eklenmiş CDN -->
+    <script src="https://cdn.tailwindcss.com?v=3.4.0"></script>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800&display=swap" rel="stylesheet">
+    
+    <!-- Cache bypass script -->
+    <script>
+        // Sayfa geri butonuyla gelirse zorla yenile
+        window.addEventListener('pageshow', function(event) {
+            if (event.persisted || (window.performance && window.performance.navigation.type === 2)) {
+                window.location.reload(true);
+            }
+        });
+        
+        // Konsola version bilgisi yazdır (güncelleme kontrolü için)
+        console.log('🔄 Sınav Sistemi Version: 1.0 - Son Güncelleme:', new Date().toLocaleString('tr-TR'));
+    </script>
+    
     <style>
         body { font-family: 'Inter', sans-serif; background-color: #f3f4f6; display:flex;justify-content:center;align-items:center;min-height:100vh;margin:0;}
         .app-card { background-color:white;padding:2.5rem;border-radius:1.5rem;box-shadow:0 10px 15px -3px rgba(0,0,0,0.1),0 4px 6px -2px rgba(0,0,0,0.05);max-width:450px;width:90%;transition:all .3s;position:relative;}
@@ -17,9 +38,27 @@
         .button{transition:all .2s;box-shadow:0 4px 6px rgba(0,0,0,0.1)}
         .button:hover{transform:translateY(-1px);box-shadow:0 6px 10px rgba(0,0,0,0.15)}
         @media (max-width:640px){ .app-card{padding:1.5rem;border-radius:1rem} .header-bg{margin:-1.5rem -1.5rem 1rem -1.5rem;padding:.75rem 0} }
+        
+        /* Version göstergesi */
+        .version-badge {
+            position: fixed;
+            bottom: 10px;
+            right: 10px;
+            background: rgba(79, 70, 229, 0.9);
+            color: white;
+            padding: 5px 10px;
+            border-radius: 5px;
+            font-size: 10px;
+            z-index: 9999;
+        }
     </style>
 </head>
 <body>
+    <!-- Version göstergesi (geliştirme için - canlıda kaldırabilirsiniz) -->
+    <div class="version-badge">v1.0 - <span id="buildTime"></span></div>
+    <script>
+        document.getElementById('buildTime').textContent = new Date().toLocaleTimeString('tr-TR');
+    </script>
 
     <div id="app" class="app-card">
         <div id="loginHeader" class="header-bg">
@@ -42,6 +81,9 @@
     </div>
 
     <script type="module">
+        // Modül version kontrolü
+        console.log('📦 JavaScript Modülü Yüklendi:', new Date().toISOString());
+        
         import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
         import { getAuth, signInAnonymously, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
         import { getFirestore, doc, setDoc, collection, onSnapshot, serverTimestamp, query, where, getDocs, deleteDoc, getDoc, addDoc, updateDoc } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
@@ -232,12 +274,10 @@
             studentData = { name, number, className, examCode };
             isTeacherMode = false;
 
-            // ÖNEMLİ: Öğrenci numarasına göre kontrol et (aynı öğrenci tekrar giremez)
             const studentKey = `${examCode}_${number}`;
             
             console.log("Öğrenci kontrolü başlatılıyor:", studentKey);
             
-            // 1. Önce tamamlanmış sınavları kontrol et
             const completedExam = await checkCompletedExam(studentKey);
             if (completedExam) {
                 console.log("Tamamlanmış sınav bulundu:", completedExam);
@@ -246,7 +286,6 @@
                 return;
             }
 
-            // 2. Devam eden oturum var mı kontrol et
             console.log("Devam eden oturum kontrol ediliyor...");
             const existingSession = await checkExistingSession(studentKey);
             
@@ -258,7 +297,6 @@
                 
                 if (shouldResume) {
                     console.log("Kullanıcı devam etmeyi seçti, oturum yükleniyor...");
-                    // Önceki oturumu yükle
                     studentData = { 
                         name: existingSession.name || name, 
                         number: existingSession.number || number, 
@@ -284,7 +322,6 @@
                     return;
                 } else {
                     console.log("Kullanıcı yeniden başlamayı seçti, eski oturum siliniyor...");
-                    // Önceki oturumu sil, yeniden başlat
                     try {
                         await deleteDoc(doc(db, "active_sessions", existingSession.id));
                         console.log("Eski oturum silindi");
@@ -296,7 +333,6 @@
                 console.log("Devam eden oturum bulunamadı, yeni oturum başlatılıyor");
             }
 
-            // Yeni oturum başlat
             questionOrder = seededShuffle(Array.from({length: quizQuestions.length}, (_, i) => i), number);
             selectedAnswers = Array(quizQuestions.length).fill(null);
             currentQuestionIndex = 0;
@@ -743,198 +779,7 @@ function showTeacherPanel() {
             <button id="downloadCsvButton" class="button bg-gray-600 hover:bg-gray-700 text-white font-semibold py-2 px-4 rounded-lg text-sm shadow-md">Tüm Sonuçları Excel (CSV) İndir</button>
             <button id="teacherLogout" class="button bg-red-600 hover:bg-red-700 text-white font-semibold py-2 px-4 rounded-lg text-sm shadow-md">Çıkış Yap</button>
         </div>
-        <div class="overflow-x-auto bg-white rounded-lg shadow-lg border border-indigo-100">
-            <table class="min-w-full divide-y divide-gray-200">
-                <thead class="bg-indigo-100">
-                    <tr>
-                        <th class="px-4 py-3 text-left text-xs font-medium text-indigo-700 uppercase tracking-wider">Sınav Kodu</th>
-                        <th class="px-4 py-3 text-left text-xs font-medium text-indigo-700 uppercase tracking-wider">Ad Soyad</th>
-                        <th class="px-4 py-3 text-left text-xs font-medium text-indigo-700 uppercase tracking-wider">Puan</th>
-                        <th class="px-4 py-3 text-left text-xs font-medium text-indigo-700 uppercase tracking-wider">Doğru</th>
-                        <th class="px-4 py-3 text-left text-xs font-medium text-indigo-700 uppercase tracking-wider">Süre</th>
-                        <th class="px-4 py-3 text-left text-xs font-medium text-indigo-700 uppercase tracking-wider">Odak Kaybı</th>
-                        <th class="px-4 py-3 text-left text-xs font-medium text-indigo-700 uppercase tracking-wider">Sınıf / No</th>
-                        <th class="px-4 py-3 text-left text-xs font-medium text-indigo-700 uppercase tracking-wider">İşlem</th>
-                    </tr>
-                </thead>
-                <tbody id="submissionsTableBody" class="bg-white divide-y divide-gray-200">
-                    <tr><td colspan="8" class="text-center py-4 text-gray-500">Sonuçlar yükleniyor...</td></tr>
-                </tbody>
-            </table>
-        </div>
-    `;
-
-    document.getElementById('mainContentArea').innerHTML = teacherHtml;
-
-    document.getElementById('teacherLogout').addEventListener('click', showLoginForm);
-    document.getElementById('downloadCsvButton').addEventListener('click', downloadSubmissionsAsCsv);
-    document.getElementById('filterExamCode').addEventListener('input', renderSubmissionsTable);
-    document.getElementById('filterStudentNumber').addEventListener('input', renderSubmissionsTable);
-
-    loadSubmissions();
-}
-
-function loadSubmissions() {
-    if (!db || !isAuthReady) return;
-    const collectionRef = collection(db, `quiz_submissions`);
-    const q = query(collectionRef);
-
-    onSnapshot(q, (snapshot) => {
-        currentSubmissions = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-        currentSubmissions.sort((a, b) => {
-            const scoreCompare = parseFloat(b.score) - parseFloat(a.score);
-            if (scoreCompare !== 0) return scoreCompare;
-            return a.timeSpent - b.timeSpent;
-        });
-        renderSubmissionsTable();
-    }, (error) => {
-        console.error("Sonuçlar dinlenirken hata oluştu: ", error);
-        document.getElementById('submissionsTableBody').innerHTML = `<tr><td colspan="8" class="text-center py-4 text-red-500">Veritabanı bağlantı hatası.</td></tr>`;
-    });
-}
-
-function renderSubmissionsTable() {
-    const tableBody = document.getElementById('submissionsTableBody');
-    if (!tableBody) return;
-
-    const examCodeFilter = document.getElementById('filterExamCode')?.value.toLowerCase() || '';
-    const studentNumberFilter = document.getElementById('filterStudentNumber')?.value.toLowerCase() || '';
-
-    const filteredSubmissions = currentSubmissions.filter(sub => {
-        const matchesExamCode = sub.examCode?.toLowerCase().includes(examCodeFilter);
-        const matchesNumber = sub.number?.toString().toLowerCase().includes(studentNumberFilter);
-        return matchesExamCode && matchesNumber;
-    });
-
-    if (filteredSubmissions.length === 0) {
-        tableBody.innerHTML = '<tr><td colspan="8" class="text-center py-4 text-gray-500">Filtreye uyan sonuç bulunamadı.</td></tr>';
-        return;
-    }
-
-    tableBody.innerHTML = filteredSubmissions.map(submission => {
-        const scoreColor = parseFloat(submission.score) >= 50 ? 'text-green-600' : 'text-red-600';
-        const timeSpentMinutes = Math.floor(submission.timeSpent / 60);
-        const timeSpentSeconds = submission.timeSpent % 60;
-        const focusLossText = submission.focusLossCount > 0 ? `⚠️ ${submission.focusLossCount}` : 'Yok';
-        const focusLossColor = submission.focusLossCount > 0 ? 'bg-yellow-100 text-yellow-800 font-bold' : 'text-gray-500';
-
-        return `
-            <tr class="hover:bg-gray-50 transition duration-150">
-                <td class="px-4 py-3 whitespace-nowrap text-sm text-indigo-700 font-semibold">${submission.examCode || '-'}</td>
-                <td class="px-4 py-3 whitespace-nowrap text-sm font-medium text-gray-900">${submission.name || 'Bilinmiyor'}</td>
-                <td class="px-4 py-3 whitespace-nowrap text-lg font-bold ${scoreColor}">${submission.score}</td>
-                <td class="px-4 py-3 whitespace-nowrap text-sm text-green-500">${submission.correct}</td>
-                <td class="px-4 py-3 whitespace-nowrap text-sm text-indigo-600">${timeSpentMinutes} dk ${String(timeSpentSeconds).padStart(2,'0')} sn</td>
-                <td class="px-4 py-3 whitespace-nowrap text-sm ${focusLossColor}">${focusLossText}</td>
-                <td class="px-4 py-3 whitespace-nowrap text-sm text-gray-700">${submission.className || '-'} / ${submission.number || '-'}</td>
-                <td class="px-4 py-3 whitespace-nowrap text-right text-sm font-medium">
-                    <button data-id="${submission.id}" class="delete-btn text-red-600 hover:text-red-900 transition duration-150">Sil</button>
-                </td>
-            </tr>
-        `;
-    }).join('');
-
-    tableBody.querySelectorAll('.delete-btn').forEach(button => {
-        button.addEventListener('click', handleDeleteSubmission);
-    });
-}
-
-async function handleDeleteSubmission(event) {
-    const submissionId = event.target.dataset.id;
-    if (!db) return;
-    const docRef = doc(db, `quiz_submissions`, submissionId);
-    const confirmed = await showCustomConfirmation('Bu kaydı silmek istediğinizden emin misiniz?');
-    if (confirmed) {
-        try {
-            await deleteDoc(docRef);
-            await showCustomAlert("Başarılı", "Kayıt silindi.");
-        } catch (e) {
-            console.error("Kaydı silerken hata oluştu: ", e);
-            await showCustomAlert("Hata", "Kaydı silerken bir hata oluştu.");
-        }
-    }
-}
-
-function downloadSubmissionsAsCsv() {
-    if (currentSubmissions.length === 0) {
-        showCustomAlert("Uyarı", "İndirilecek veri bulunmamaktadır.");
-        return;
-    }
-
-    const header = [
-        'Sınav Kodu', 'Öğrenci Adı', 'Okul No', 'Sınıf', 'Puan', 'Doğru', 'Yanlış', 'Boş',
-        'Harcanan Süre (sn)', 'Harcanan Süre (dk:sn)', 'Odak Kaybı Sayısı', 'Soru Sırası', 'Tarih', 'Öğrenci Key'
-    ];
-    const csvRows = [header.join(';')];
-
-    currentSubmissions.forEach(sub => {
-        const timestamp = sub.timestamp?.toDate ? sub.timestamp.toDate().toLocaleString('tr-TR') : (sub.timestamp || 'N/A');
-        const timeStr = `${Math.floor(sub.timeSpent / 60)}:${String(sub.timeSpent % 60).padStart(2,'0')}`;
-        const row = [
-            sub.examCode || EXAM_CODE,
-            `"${sub.name}"`,
-            sub.number,
-            sub.className,
-            sub.score,
-            sub.correct,
-            sub.incorrect,
-            sub.empty,
-            sub.timeSpent,
-            timeStr,
-            sub.focusLossCount || 0,
-            `"${sub.questionOrder?.join(',') || 'N/A'}"`,
-            `"${timestamp}"`,
-            sub.studentKey || 'N/A'
-        ];
-        csvRows.push(row.map(item => String(item).replace(/"/g, '""')).join(';'));
-    });
-
-    const csvString = csvRows.join('\n');
-    const blob = new Blob(["\ufeff" + csvString], { type: 'text/csv;charset=utf-8;' });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.setAttribute('href', url);
-    link.setAttribute('download', 'sinav_sonuclari_detayli_guvenlik.csv');
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-}
-
-function showCustomConfirmation(message) {
-    return new Promise(resolve => {
-        const modal = document.getElementById('customModal');
-        const modalContent = document.getElementById('modalContent');
-        modalContent.innerHTML = `
-            <h3 class="text-xl font-semibold text-gray-800 mb-4">Onay Gerekli</h3>
-            <p class="text-gray-600 mb-6 whitespace-pre-line">${message}</p>
-            <div class="flex justify-center space-x-4">
-                <button id="modalConfirm" class="button bg-green-600 hover:bg-green-700 text-white font-semibold py-2 px-4 rounded-lg shadow-md">Evet</button>
-                <button id="modalCancel" class="button bg-gray-300 hover:bg-gray-400 text-gray-800 font-semibold py-2 px-4 rounded-lg shadow-md">Hayır</button>
-            </div>
-        `;
-        modal.classList.remove('hidden'); modal.classList.add('flex');
-        document.getElementById('modalConfirm').onclick = () => { modal.classList.add('hidden'); modal.classList.remove('flex'); resolve(true); };
-        document.getElementById('modalCancel').onclick = () => { modal.classList.add('hidden'); modal.classList.remove('flex'); resolve(false); };
-    });
-}
-
-function showCustomAlert(title, message) {
-    return new Promise(resolve => {
-        const modal = document.getElementById('customModal');
-        const modalContent = document.getElementById('modalContent');
-        modalContent.innerHTML = `
-            <h3 class="text-xl font-semibold text-gray-800 mb-4">${title}</h3>
-            <p class="text-gray-600 mb-6 whitespace-pre-line">${message}</p>
-            <button id="modalClose" class="button bg-indigo-600 hover:bg-indigo-700 text-white font-semibold py-2 px-4 rounded-lg shadow-md">Tamam</button>
-        `;
-        modal.classList.remove('hidden'); modal.classList.add('flex');
-        document.getElementById('modalClose').onclick = () => { modal.classList.add('hidden'); modal.classList.remove('flex'); resolve(); };
-    });
-}
-
-initializeFirebase();
-
+        <div class="overflow-x-auto bg-white rounded-lg shadow-lg border border-in
     </script>
 </body>
 </html>
-
