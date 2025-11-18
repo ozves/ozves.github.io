@@ -103,7 +103,108 @@
             return shuffled;
         }
 
-        async function initializeFirebase() {
+       async function initializeFirebase() {
+    try {
+        if (!firebaseConfig || !firebaseConfig.apiKey) {
+            document.getElementById('systemStatus').textContent = 'Hata: Firebase yapılandırması eksik.';
+            return;
+        }
+        
+        const app = initializeApp(firebaseConfig);
+        db = getFirestore(app);
+        auth = getAuth(app);
+        
+        document.getElementById('systemStatus').textContent = 'Oturum açılıyor...';
+        
+        await signInAnonymously(auth);
+        
+        onAuthStateChanged(auth, async (user) => {
+            if (user) {
+                userId = user.uid;
+                isAuthReady = true;
+                
+                // ✅ YENİ: Sistem ayarlarını yükle
+                try {
+                    await loadSystemSettings();
+                    document.getElementById('loadingIndicator').classList.add('hidden');
+                    document.getElementById('systemStatus').textContent = `Kullanıcı ID: ${userId}`;
+                    showLoginForm();
+                } catch (error) {
+                    document.getElementById('mainContentArea').innerHTML = `
+                        <p class="text-red-600 text-center text-lg font-bold">Sistem Ayarları Yüklenemedi</p>
+                        <p class="text-sm text-red-500 text-center mt-2">Detay: ${error.message}</p>
+                        <p class="text-xs text-gray-500 text-center mt-4">Firebase Console'dan 'system_settings/config' dokümanını kontrol edin.</p>
+                    `;
+                }
+            } else {
+                userId = null;
+                isAuthReady = true;
+                document.getElementById('loadingIndicator').classList.add('hidden');
+                document.getElementById('systemStatus').textContent = 'Oturum Açılamadı';
+                showLoginForm();
+            }
+        });
+    } catch (error) {
+        console.error('Firebase başlatılırken hata oluştu:', error);
+        document.getElementById('mainContentArea').innerHTML = `
+            <p class="text-red-600 text-center text-lg font-bold">Sistem Hatası: Bağlantı Kurulamadı</p>
+            <p class="text-sm text-red-500 text-center mt-2">Detay: ${error.message}</p>
+        `;
+    }
+}
+       async function loadSystemSettings() {
+            if (!db) {
+                throw new Error('Firestore hazır değil');
+            }
+            
+            try {
+                const settingsRef = doc(db, 'system_settings', 'config');
+                const settingsSnap = await getDoc(settingsRef);
+                
+                if (settingsSnap.exists()) {
+                    const settings = settingsSnap.data();
+                    teacherPassword = settings.teacherPassword;
+                    console.log('✅ Sistem ayarları yüklendi');
+                } else {
+                    throw new Error('Sistem ayarları bulunamadı.');
+                }
+            } catch (error) {
+                console.error('Sistem ayarları yüklenirken hata:', error);
+                throw error;
+            }
+        } 
+        async function loadQuestionsFromFirestore(examCode) {
+            if (!db) {
+                throw new Error('Firestore hazır değil');
+            }
+            
+            try {
+                const docRef = doc(db, 'quiz_questions', examCode);
+                const docSnap = await getDoc(docRef);
+                
+                if (docSnap.exists()) {
+                    const data = docSnap.data();
+                    quizQuestions = data.questions || [];
+                    
+                    if (quizQuestions.length === 0) {
+                        throw new Error('Sınav soruları boş');
+                    }
+                    
+                    quizQuestionsWithoutAnswers = quizQuestions.map(q => ({
+                        question: q.question,
+                        options: q.options
+                    }));
+                    
+                    console.log(`✅ ${quizQuestions.length} soru yüklendi (Sınav: ${examCode})`);
+                    return true;
+                } else {
+                    throw new Error(`Sınav kodu "${examCode}" için sorular bulunamadı`);
+                }
+            } catch (error) {
+                console.error('Sorular yüklenirken hata:', error);
+                throw error;
+            }
+        }
             try {
                 if (!firebaseConfig || !firebaseConfig.apiKey) {
                     document.getElementById('systemStatus').textContent = 'Hata: Firebase yapılandırması eksik.';
@@ -167,65 +268,7 @@
             document.getElementById('teacherLoginButton').addEventListener('click', showTeacherLogin);
         }
 
-        async function handleStudentLogin() {
-            const name = document.getElementById('nameInput').value.trim();
-            const number = document.getElementById('numberInput').value.trim();
-            const className = document.getElementById('classInput').value.trim();
-            const examCode = document.getElementById('examCodeInput').value.trim().toUpperCase();
-            if (!name || !number || !className || !examCode) {
-                showCustomAlert("Eksik Bilgi", "Lütfen tüm alanları doldurun.");
-                return;
-            }
-
-            if (examCode !== EXAM_CODE) {
-                showCustomAlert("Hatalı Sınav Kodu", `Girdiğiniz sınav kodu ("${examCode}") geçersizdir. Lütfen doğru kodu giriniz.`);
-                return;
-            }
-
-            studentData = { name, number, className, examCode };
-            isTeacherMode = false;
-
-            const studentKey = `${examCode}_${number}`;
-            console.log("Öğrenci kontrolü başlatılıyor:", studentKey);
-            
-            const completedExam = await checkCompletedExam(studentKey);
-            if (completedExam) {
-                console.log("Tamamlanmış sınav bulundu:", completedExam);
-                await showCustomAlert("Sınav Tamamlandı", 
-                    `Bu sınavı daha önce tamamladınız!\n\nPuanınız: ${completedExam.score}\nTarih: ${completedExam.timestamp}`);
-                return;
-            }
-
-            console.log("Devam eden oturum kontrol ediliyor...");
-            const existingSession = await checkExistingSession(studentKey);
-            
-            if (existingSession) {
-                console.log("Devam eden oturum bulundu, otomatik olarak yükleniyor:", existingSession);
-                await showCustomAlert(
-                    "Oturum Bulundu",
-                    `Daha önce bu sınava başlamışsınız.\n\nKaldığınız yerden otomatik olarak devam ediyorsunuz.\n\nKalan süre: ${Math.floor(existingSession.timeLeft / 60)} dk ${existingSession.timeLeft % 60} sn`
-                );
-                console.log("Oturum zorunlu olarak yükleniyor...");
-                studentData = { 
-                    name: existingSession.name || name, 
-                    number: existingSession.number || number, 
-                    className: existingSession.className || className, 
-                    examCode: existingSession.examCode || examCode 
-                };
-                questionOrder = existingSession.questionOrder || [];
-                selectedAnswers = existingSession.selectedAnswers || Array(quizQuestions.length).fill(null);
-                currentQuestionIndex = existingSession.currentQuestionIndex || 0;
-                timeLeft = existingSession.timeLeft || TIME_LIMIT_SECONDS;
-                focusLossCount = existingSession.focusLossCount || 0;
-                currentSessionDocId = existingSession.id;
-                
-                // --- GÜVENLİK: BAŞLANGIÇ SINIRINI AYARLA ---
-                // Öğrenci kaldığı yerden (örneğin 5. soru) devam ediyorsa, 
-                // geri butonu ile 4, 3, 2, 1. sorulara dönemez.
-                resumeStartIndex = currentQuestionIndex;
-                // ------------------------------------------
-
-                showQuiz();
+         showQuiz();
                 return;
             }
 
@@ -307,14 +350,19 @@
 
         function handleTeacherLogin() {
             const code = document.getElementById('teacherCodeInput').value.trim();
-            if (code === TEACHER_CODE) {
+            
+            if (!teacherPassword) {
+                showCustomAlert('Hata', 'Öğretmen şifresi yüklenemedi. Lütfen sayfayı yenileyin.');
+                return;
+            }
+            
+            if (code === teacherPassword) {
                 isTeacherMode = true;
                 showTeacherPanel();
             } else {
-                showCustomAlert("Hata", "Girdiğiniz öğretmen kodu yanlış.");
+                showCustomAlert('Hata', 'Girdiğiniz öğretmen kodu yanlış.');
             }
         }
-
         function showQuiz() {
             document.getElementById('app').classList.remove('max-w-md');
             document.getElementById('app').classList.add('max-w-3xl');
@@ -420,7 +468,7 @@
             const container = document.getElementById('questionsContainer');
             if (!container) return;
             const originalIndex = questionOrder[quizIndex];
-            const q = quizQuestions[originalIndex];
+           const q = quizQuestionsWithoutAnswers[originalIndex];
             const shuffledOptions = seededShuffle(q.options, studentData.number + 'options' + originalIndex);
             const currentAnswer = selectedAnswers[originalIndex];
 
@@ -961,7 +1009,110 @@
         }
 
         initializeFirebase();
+// İLK KURULUM FONKSİYONU
+        async function ilkKurulum() {
+            const sorular = [
+                {
+                    question: "Canlıları benzerlik, farklılık ve akrabalık derecelerine göre gruplara ayırma ilke ve ölçütlerini belirleyen bilim dalına ne ad verilir?",
+                    options: ["Morfoloji", "Histoloji", "Biyokimya", "Taksonomi", "Fizyoloji"],
+                    answer: "Taksonomi"
+                },
+                {
+                    question: "Aşağıdakilerden hangisi, ortak özelliklere, genetik mirasa sahip olan ve birbirleriyle çiftleşip verimli döl verebilen canlılar grubu olarak tanımlanan sınıflandırmadaki temel kategoridir?",
+                    options: ["Cins", "Aile", "Şube", "Âlem", "Tür"],
+                    answer: "Tür"
+                },
+                {
+                    question: "Günümüzde canlıların akrabalık ilişkilerine göre yapılan, morfolojik, anatomik ve genetik gibi birçok özelliğin dikkate alındığı sınıflandırma sistemi ne olarak adlandırılır?",
+                    options: ["Yapısal Sınıflandırma", "Yapay Sınıflandırma", "Sistematik Sınıflandırma", "Doğal (Filogenetik) Sınıflandırma", "Ekolojik Sınıflandırma"],
+                    answer: "Doğal (Filogenetik) Sınıflandırma"
+                },
+                {
+                    question: "Türlerin isimlendirilmesinde kullanılan ikili (binominal) adlandırma yöntemini öneren İsveçli doğa bilimci aşağıdakilerden hangisidir?",
+                    options: ["Aristoteles", "Galileo Galilei", "Carl Linneaus", "Charles Darwin", "Gregor Mendel"],
+                    answer: "Carl Linneaus"
+                },
+                {
+                    question: "Metinde verilen 'Fritillaria imperialis' tür adında, 'imperialis' kelimesi hangi görevi ifade eder?",
+                    options: ["Cins Adı", "Aile Adı", "Tamamlayıcı Ad", "Takım Adı", "Tür Adı"],
+                    answer: "Tamamlayıcı Ad"
+                },
+                {
+                    question: "İkili adlandırma yöntemine göre, bir tür adının birinci kelimesi (Cins adı) ile ilgili doğru kural aşağıdakilerden hangisidir?",
+                    options: ["Tamamen büyük harflerle yazılır.", "İlk harfi küçük yazılır.", "Akrabalık derecesini ifade eder.", "İlk harfi büyük yazılır.", "Tek başına türü ifade eder."],
+                    answer: "İlk harfi büyük yazılır."
+                },
+                {
+                    question: "Sınıflandırma bilimi, mikroorganizmaların doğru tanımlanması ve tehlike altındaki türlerin korunması gibi konulara katkı sağlayarak hangi iki alandaki araştırmaların temelini oluşturur?",
+                    options: ["Ekonomi ve Hukuk", "Eğitim ve Kültür", "Sağlık ve Çevre Koruma", "Ulaşım ve İletişim", "Sanayi ve Tarım"],
+                    answer: "Sağlık ve Çevre Koruma"
+                },
+                {
+                    question: "Metinde bahsedilen taksonomik hiyerarşi sıralamasına göre, birbirine yakın türlerin bir araya gelmesiyle oluşan kategoriden başlayarak doğru sıralama (küçükten büyüğe) hangi seçenekte verilmiştir?",
+                    options: ["Tür, Cins, Aile, Takım, Sınıf, Şube, Âlem", "Cins, Aile, Takım, Sınıf, Şube, Âlem", "Cins, Sınıf, Aile, Takım, Şube, Âlem", "Cins, Aile, Sınıf, Takım, Şube, Âlem", "Âlem, Şube, Sınıf, Takım, Aile, Cins"],
+                    answer: "Cins, Aile, Takım, Sınıf, Şube, Âlem"
+                },
+                {
+                    question: "Doğal (filogenetik) sınıflandırmada canlılar arasındaki akrabalık ilişkilerinin moleküler düzeyde belirlenmesine en önemli katkıyı sağlayan inceleme yöntemi aşağıdakilerden hangisidir?",
+                    options: ["Morfolojik yapıların karşılaştırılması", "Yaşadıkları habitatların incelenmesi", "Fiziksel özelliklerin ölçülmesi", "Beslenme alışkanlıklarının gözlemlenmesi", "DNA ve RNA dizilerinin incelenmesi"],
+                    answer: "DNA ve RNA dizilerinin incelenmesi"
+                },
+                {
+                    question: "Aşağıdakilerden hangisi, taksonomi biliminin canlıları tanımlama çalışmalarında yararlandığı biyolojinin alt dalları arasında sayılmamıştır?",
+                    options: ["Morfoloji", "Anatomi", "Histoloji", "Biyokimya", "Ekoloji"],
+                    answer: "Ekoloji"
+                }
+            ];
 
+            if (!db) {
+                alert('❌ Firebase bağlantısı yok. Sayfayı yenileyin.');
+                return;
+            }
+
+            try {
+                await setDoc(doc(db, 'system_settings', 'config'), {
+                    teacherPassword: 'OGRETMEN34',
+                    appName: 'Öğrenci Sınav Uygulaması',
+                    version: '2.0',
+                    updatedAt: serverTimestamp()
+                });
+                
+                await setDoc(doc(db, 'quiz_questions', '111'), {
+                    questions: sorular,
+                    examCode: '111',
+                    createdBy: 'Öztürk sevinç',
+                    createdAt: serverTimestamp()
+                });
+                
+                alert('✅ BAŞARILI! Sayfayı yenileyin (F5).');
+            } catch (error) {
+                alert('❌ Hata: ' + error.message);
+            }
+        }
+```
+
+---
+
+## ✅ ÖZET KONTROL LİSTESİ
+
+Değişiklikler yapıldıktan sonra dosya şu sırada olmalı:
+```
+1. ✅ Değişkenler (quizQuestions, teacherPassword vb.)
+2. ✅ seededShuffle fonksiyonu
+3. ✅ initializeFirebase (DEĞİŞTİRİLDİ)
+4. ✅ loadSystemSettings (YENİ)
+5. ✅ loadQuestionsFromFirestore (YENİ)
+6. ✅ showLoginForm
+7. ✅ handleStudentLogin (DEĞİŞTİRİLDİ)
+8. ✅ checkCompletedExam
+9. ✅ checkExistingSession
+10. ✅ showTeacherLogin
+11. ✅ handleTeacherLogin (DEĞİŞTİRİLDİ)
+12. ✅ showQuiz
+13. ✅ renderQuestion (KÜÇÜK DEĞİŞİKLİK)
+    ... diğer fonksiyonlar ...
+14. ✅ initializeFirebase(); (çağrı)
+15. ✅ ilkKurulum (YENİ - en altta)
     </script>
 </body>
 </html>
