@@ -50,7 +50,6 @@
         let userId = null;
         let isAuthReady = false;
 
-        const TEACHER_CODE = 'OGRETMEN34';
         const EXAM_CODE = '111';
         const TEACHER_NAME = 'Öztürk sevinç (biyoloji Öğretmeni)';
         const TIME_LIMIT_SECONDS = 600;
@@ -64,61 +63,12 @@
             appId: "1:965507531268:web:94cfd13774a40b6cf16b51"
         };
 
-        const quizQuestions = [        
-          {
-            "question": "Canlıları benzerlik, farklılık ve akrabalık derecelerine göre gruplara ayırma ilke ve ölçütlerini belirleyen bilim dalına ne ad verilir?",
-            "options": ["Morfoloji", "Histoloji", "Biyokimya", "Taksonomi", "Fizyoloji"],
-            "answer": "Taksonomi"
-          },
-          {
-            "question": "Aşağıdakilerden hangisi, ortak özelliklere, genetik mirasa sahip olan ve birbirleriyle çiftleşip **verimli döl verebilen** canlılar grubu olarak tanımlanan sınıflandırmadaki temel kategoridir?",
-            "options": ["Cins", "Aile", "Şube", "Âlem", "Tür"],
-            "answer": "Tür"
-          },
-          {
-            "question": "Günümüzde canlıların akrabalık ilişkilerine göre yapılan, morfolojik, anatomik ve genetik gibi birçok özelliğin dikkate alındığı sınıflandırma sistemi ne olarak adlandırılır?",
-            "options": ["Yapısal Sınıflandırma", "Yapay Sınıflandırma", "Sistematik Sınıflandırma", "Doğal (Filogenetik) Sınıflandırma", "Ekolojik Sınıflandırma"],
-            "answer": "Doğal (Filogenetik) Sınıflandırma"
-          },
-          {
-            "question": "Türlerin isimlendirilmesinde kullanılan ikili (binominal) adlandırma yöntemini öneren İsveçli doğa bilimci aşağıdakilerden hangisidir?",
-            "options": ["Aristoteles", "Galileo Galilei", "Carl Linneaus", "Charles Darwin", "Gregor Mendel"],
-            "answer": "Carl Linneaus"
-          },
-          {
-            "question": "Metinde verilen 'Fritillaria imperialis' tür adında, 'imperialis' kelimesi hangi görevi ifade eder?",
-            "options": ["Cins Adı", "Aile Adı", "Tamamlayıcı Ad", "Takım Adı", "Tür Adı"],
-            "answer": "Tamamlayıcı Ad"
-          },
-          {
-            "question": "İkili adlandırma yöntemine göre, bir tür adının birinci kelimesi (Cins adı) ile ilgili doğru kural aşağıdakilerden hangisidir?",
-            "options": ["Tamamen büyük harflerle yazılır.", "İlk harfi küçük yazılır.", "Akrabalık derecesini ifade eder.", "İlk harfi büyük yazılır.", "Tek başına türü ifade eder."],
-            "answer": "İlk harfi büyük yazılır"
-          },
-          {
-            "question": "Sınıflandırma bilimi, mikroorganizmaların doğru tanımlanması ve tehlike altındaki türlerin korunması gibi konulara katkı sağlayarak hangi iki alandaki araştırmaların temelini oluşturur?",
-            "options": ["Ekonomi ve Hukuk", "Eğitim ve Kültür", "Sağlık ve Çevre Koruma", "Ulaşım ve İletişim", "Sanayi ve Tarım"],
-            "answer": "Sağlık ve Çevre Koruma"
-          },
-          {
-            "question": "Metinde bahsedilen taksonomik hiyerarşi sıralamasına göre, birbirine yakın türlerin bir araya gelmesiyle oluşan kategoriden başlayarak doğru sıralama (küçükten büyüğe) hangi seçenekte verilmiştir?",
-            "options": ["Tür, Cins, Aile, Takım, Sınıf, Şube, Âlem", "Cins, Aile, Takım, Sınıf, Şube, Âlem", "Cins, Sınıf, Aile, Takım, Şube, Âlem", "Cins, Aile, Sınıf, Takım, Şube, Âlem", "Âlem, Şube, Sınıf, Takım, Aile, Cins"],
-            "answer": "Cins, Aile, Takım, Sınıf, Şube, Âlem"
-          },
-          {
-            "question": "Doğal (filogenetik) sınıflandırmada canlılar arasındaki akrabalık ilişkilerinin moleküler düzeyde belirlenmesine en önemli katkıyı sağlayan inceleme yöntemi aşağıdakilerden hangisidir?",
-            "options": ["Morfolojik yapıların karşılaştırılması", "Yaşadıkları habitatların incelenmesi", "Fiziksel özelliklerin ölçülmesi", "Beslenme alışkanlıklarının gözlemlenmesi", "DNA ve RNA dizilerinin incelenmesi"],
-            "answer": "DNA ve RNA dizilerinin incelenmesi"
-          },
-          {
-            "question": "Aşağıdakilerden hangisi, taksonomi biliminin canlıları tanımlama çalışmalarında yararlandığı biyolojinin alt dalları arasında **sayılmamıştır**?",
-            "options": ["Morfoloji", "Anatomi", "Histoloji", "Biyokimya", "Ekoloji"],
-            "answer": "Ekoloji"
-          }
-        ];
 
-        let selectedAnswers = Array(quizQuestions.length).fill(null);
-        let questionOrder = Array.from({length: quizQuestions.length}, (_, i) => i);
+        let quizQuestions = [];
+        let quizQuestionsWithoutAnswers = [];
+        let teacherPassword = null;
+        let selectedAnswers = [];
+        let questionOrder = [];
         let currentQuestionIndex = 0;
         
         // --- GÜVENLİK GÜNCELLEMESİ: BAŞLANGIÇ SINIRI ---
