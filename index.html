@@ -6,11 +6,12 @@
     <title>Öğrenci Sınav Uygulaması</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <style>
-        body { font-family: 'Inter', sans-serif; background-color: #f3f4f6; display:flex;justify-content:center;align-items:center;min-height:100vh;margin:0;}
+        body { font-family: 'Inter', sans-serif; background-color: #f3f4f6; display:flex;justify-content:center;align-items:center;min-height:100vh;margin:0;padding:1rem;}
         .app-card { background-color:white;padding:2.5rem;border-radius:1.5rem;box-shadow:0 10px 15px -3px rgba(0,0,0,0.1);max-width:450px;width:90%;}
         .header-bg { background: linear-gradient(135deg,#4f46e5 0%,#818cf8 100%); color:white;padding:1rem 0;border-radius:1rem 1rem 0 0;margin:-2.5rem -2.5rem 1.5rem -2.5rem;text-align:center;}
         .button { transition:all .2s; }
         .button:hover { transform:translateY(-2px); }
+        .filter-badge { display: inline-block; background: #e0e7ff; color: #4338ca; padding: 0.25rem 0.75rem; border-radius: 0.5rem; margin: 0.25rem; font-size: 0.875rem; font-weight: 600; }
     </style>
 </head>
 <body>
@@ -61,6 +62,11 @@
         let questionOrder = Array.from({length: quizQuestions.length}, (_, i) => i);
         let currentQuestionIndex = 0, resumeStartIndex = 0, timeLeft = TIME_LIMIT_SECONDS, isTeacherMode = false;
         let studentData = {}, focusLossCount = 0, currentSessionDocId = null, timerInterval;
+        
+        // Öğretmen paneli için değişkenler
+        let allSubmissions = [];
+        let currentFilter = { type: 'all', value: null };
+        let selectedStudents = new Set();
 
         async function initializeFirebase() {
             try {
@@ -83,7 +89,7 @@
 
         function showLoginForm() {
             if (!isAuthReady) return;
-            document.getElementById('app').classList.remove('max-w-3xl');
+            document.getElementById('app').classList.remove('max-w-3xl', 'max-w-4xl');
             document.getElementById('app').classList.add('max-w-md');
             const content = `
                 <div class="space-y-4">
@@ -212,7 +218,7 @@
         }
 
         function showQuiz() {
-            document.getElementById('app').classList.remove('max-w-md');
+            document.getElementById('app').classList.remove('max-w-md', 'max-w-4xl');
             document.getElementById('app').classList.add('max-w-3xl');
             document.getElementById('loginHeader').innerHTML = `<h1 class="text-2xl font-extrabold">${studentData.name}</h1>`;
             
@@ -379,20 +385,74 @@
         }
 
         function showTeacherPanel() {
-            document.getElementById('app').classList.remove('max-w-md');
+            document.getElementById('app').classList.remove('max-w-md', 'max-w-3xl');
             document.getElementById('app').classList.add('max-w-4xl');
             document.getElementById('loginHeader').innerHTML = '<h1 class="text-2xl font-extrabold">Öğretmen Paneli</h1>';
             
             const content = `
                 <div class="space-y-4">
-                    <button id="teacherLogout" class="button bg-red-600 hover:bg-red-700 text-white font-semibold py-2 px-4 rounded-lg">Çıkış Yap</button>
+                    <div class="flex justify-between items-center">
+                        <button id="teacherLogout" class="button bg-red-600 hover:bg-red-700 text-white font-semibold py-2 px-4 rounded-lg">Çıkış Yap</button>
+                        <div class="text-sm text-gray-600">
+                            Toplam: <span id="totalCount" class="font-bold">0</span> öğrenci
+                        </div>
+                    </div>
+                    
+                    <!-- Filtreleme Bölümü -->
+                    <div class="bg-gray-50 p-4 rounded-lg border border-gray-200">
+                        <h3 class="font-bold text-gray-700 mb-3">🔍 Filtreleme</h3>
+                        <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
+                            <div>
+                                <label class="block text-xs text-gray-600 mb-1">Sınıf Numarası</label>
+                                <input id="filterNumber" type="text" placeholder="Okul numarası girin" class="w-full p-2 border border-gray-300 rounded text-sm">
+                            </div>
+                            <div>
+                                <label class="block text-xs text-gray-600 mb-1">Sınav Kodu</label>
+                                <input id="filterExamCode" type="text" placeholder="Sınav kodu girin" class="w-full p-2 border border-gray-300 rounded text-sm">
+                            </div>
+                            <div>
+                                <label class="block text-xs text-gray-600 mb-1">Sınıf</label>
+                                <select id="filterClass" class="w-full p-2 border border-gray-300 rounded text-sm">
+                                    <option value="">Tümü</option>
+                                </select>
+                            </div>
+                        </div>
+                        <div class="flex gap-2 mt-3">
+                            <button id="applyFilter" class="button bg-indigo-600 hover:bg-indigo-700 text-white font-semibold py-2 px-4 rounded text-sm">Filtrele</button>
+                            <button id="clearFilter" class="button bg-gray-300 hover:bg-gray-400 text-gray-800 font-semibold py-2 px-4 rounded text-sm">Filtreyi Temizle</button>
+                        </div>
+                        <div id="filterStatus" class="mt-2 text-sm"></div>
+                    </div>
+                    
+                    <!-- Toplu İşlemler -->
+                    <div class="bg-yellow-50 p-4 rounded-lg border border-yellow-200">
+                        <h3 class="font-bold text-gray-700 mb-3">⚡ Toplu İşlemler</h3>
+                        <div class="flex flex-wrap gap-2">
+                            <button id="selectAll" class="button bg-blue-500 hover:bg-blue-600 text-white font-semibold py-2 px-4 rounded text-sm">Tümünü Seç</button>
+                            <button id="deselectAll" class="button bg-gray-400 hover:bg-gray-500 text-white font-semibold py-2 px-4 rounded text-sm">Seçimi Kaldır</button>
+                            <button id="deleteSelected" class="button bg-orange-600 hover:bg-orange-700 text-white font-semibold py-2 px-4 rounded text-sm">Seçilenleri Sil (<span id="selectedCount">0</span>)</button>
+                            <button id="deleteFiltered" class="button bg-red-600 hover:bg-red-700 text-white font-semibold py-2 px-4 rounded text-sm">Filtrelileri Sil</button>
+                            <button id="deleteAll" class="button bg-red-800 hover:bg-red-900 text-white font-semibold py-2 px-4 rounded text-sm">Tümünü Sil</button>
+                        </div>
+                    </div>
+                    
+                    <!-- Sonuçlar Tablosu -->
                     <div id="submissionsTable" class="bg-white rounded-lg shadow overflow-auto">
                         <p class="p-4 text-gray-500">Sonuçlar yükleniyor...</p>
                     </div>
                 </div>
             `;
             document.getElementById('mainContentArea').innerHTML = content;
+            
+            // Event listeners
             document.getElementById('teacherLogout').addEventListener('click', showLoginForm);
+            document.getElementById('applyFilter').addEventListener('click', applyFilters);
+            document.getElementById('clearFilter').addEventListener('click', clearFilters);
+            document.getElementById('selectAll').addEventListener('click', selectAllStudents);
+            document.getElementById('deselectAll').addEventListener('click', deselectAllStudents);
+            document.getElementById('deleteSelected').addEventListener('click', deleteSelectedStudents);
+            document.getElementById('deleteFiltered').addEventListener('click', deleteFilteredStudents);
+            document.getElementById('deleteAll').addEventListener('click', deleteAllStudents);
             
             loadTeacherData();
         }
@@ -401,27 +461,287 @@
             if (!db || !isAuthReady) return;
             const q = query(collection(db, "quiz_submissions"));
             onSnapshot(q, (snap) => {
-                const subs = snap.docs.map(d => ({ id: d.id, ...d.data() })).sort((a, b) => parseFloat(b.score) - parseFloat(a.score));
-                const html = `
-                    <table class="min-w-full border-collapse">
-                        <thead class="bg-indigo-100"><tr>
+                allSubmissions = snap.docs.map(d => ({ id: d.id, ...d.data() })).sort((a, b) => parseFloat(b.score) - parseFloat(a.score));
+                
+                // Sınıf dropdown'ını doldur
+                const classes = [...new Set(allSubmissions.map(s => s.className))].sort();
+                const classSelect = document.getElementById('filterClass');
+                if (classSelect) {
+                    classSelect.innerHTML = '<option value="">Tümü</option>' + 
+                        classes.map(c => `<option value="${c}">${c}</option>`).join('');
+                }
+                
+                renderTable();
+            });
+        }
+
+        function getFilteredSubmissions() {
+            let filtered = [...allSubmissions];
+            
+            if (currentFilter.type === 'number' && currentFilter.value) {
+                filtered = filtered.filter(s => s.number === currentFilter.value);
+            } else if (currentFilter.type === 'examCode' && currentFilter.value) {
+                filtered = filtered.filter(s => s.examCode === currentFilter.value);
+            } else if (currentFilter.type === 'class' && currentFilter.value) {
+                filtered = filtered.filter(s => s.className === currentFilter.value);
+            }
+            
+            return filtered;
+        }
+
+        function renderTable() {
+            const filtered = getFilteredSubmissions();
+            const table = document.getElementById('submissionsTable');
+            const totalCount = document.getElementById('totalCount');
+            
+            if (totalCount) totalCount.textContent = filtered.length;
+            
+            if (filtered.length === 0) {
+                table.innerHTML = '<p class="p-4 text-gray-500">Sonuç bulunamadı.</p>';
+                return;
+            }
+            
+            const html = `
+                <table class="min-w-full border-collapse">
+                    <thead class="bg-indigo-100 sticky top-0">
+                        <tr>
+                            <th class="border p-2 text-left">
+                                <input type="checkbox" id="selectAllCheckbox" class="cursor-pointer">
+                            </th>
                             <th class="border p-2 text-left">Ad</th>
+                            <th class="border p-2 text-left">No</th>
+                            <th class="border p-2 text-left">Sınıf</th>
                             <th class="border p-2 text-left">Puan</th>
                             <th class="border p-2 text-left">Doğru</th>
-                            <th class="border p-2 text-left">Sınıf</th>
-                        </tr></thead>
-                        <tbody>
-                            ${subs.map(s => `<tr class="hover:bg-gray-50">
+                            <th class="border p-2 text-left">Sınav Kodu</th>
+                            <th class="border p-2 text-center">İşlem</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        ${filtered.map(s => `
+                            <tr class="hover:bg-gray-50">
+                                <td class="border p-2">
+                                    <input type="checkbox" class="student-checkbox cursor-pointer" data-id="${s.id}">
+                                </td>
                                 <td class="border p-2">${s.name}</td>
-                                <td class="border p-2 font-bold">${s.score}</td>
-                                <td class="border p-2">${s.correct}/${quizQuestions.length}</td>
+                                <td class="border p-2 font-mono">${s.number}</td>
                                 <td class="border p-2">${s.className}</td>
-                            </tr>`).join('')}
-                        </tbody>
-                    </table>
-                `;
-                document.getElementById('submissionsTable').innerHTML = html;
+                                <td class="border p-2 font-bold ${parseFloat(s.score) >= 50 ? 'text-green-600' : 'text-red-600'}">${s.score}</td>
+                                <td class="border p-2">${s.correct}/${quizQuestions.length}</td>
+                                <td class="border p-2 text-xs bg-indigo-50">${s.examCode}</td>
+                                <td class="border p-2 text-center">
+                                    <button class="delete-single button bg-red-500 hover:bg-red-600 text-white font-semibold py-1 px-3 rounded text-xs" data-id="${s.id}" data-name="${s.name}">
+                                        🗑️ Sil
+                                    </button>
+                                </td>
+                            </tr>
+                        `).join('')}
+                    </tbody>
+                </table>
+            `;
+            
+            table.innerHTML = html;
+            
+            // Checkbox event listeners
+            document.getElementById('selectAllCheckbox')?.addEventListener('change', (e) => {
+                const checkboxes = document.querySelectorAll('.student-checkbox');
+                checkboxes.forEach(cb => {
+                    cb.checked = e.target.checked;
+                    if (e.target.checked) {
+                        selectedStudents.add(cb.dataset.id);
+                    } else {
+                        selectedStudents.delete(cb.dataset.id);
+                    }
+                });
+                updateSelectedCount();
             });
+            
+            document.querySelectorAll('.student-checkbox').forEach(cb => {
+                cb.addEventListener('change', (e) => {
+                    if (e.target.checked) {
+                        selectedStudents.add(e.target.dataset.id);
+                    } else {
+                        selectedStudents.delete(e.target.dataset.id);
+                    }
+                    updateSelectedCount();
+                });
+            });
+            
+            // Tek silme butonları
+            document.querySelectorAll('.delete-single').forEach(btn => {
+                btn.addEventListener('click', async (e) => {
+                    const id = e.target.dataset.id;
+                    const name = e.target.dataset.name;
+                    if (confirm(`"${name}" adlı öğrenciyi silmek istediğinize emin misiniz?`)) {
+                        await deleteSingleStudent(id);
+                    }
+                });
+            });
+        }
+
+        function applyFilters() {
+            const numberFilter = document.getElementById('filterNumber').value.trim();
+            const examCodeFilter = document.getElementById('filterExamCode').value.trim().toUpperCase();
+            const classFilter = document.getElementById('filterClass').value;
+            
+            if (numberFilter) {
+                currentFilter = { type: 'number', value: numberFilter };
+            } else if (examCodeFilter) {
+                currentFilter = { type: 'examCode', value: examCodeFilter };
+            } else if (classFilter) {
+                currentFilter = { type: 'class', value: classFilter };
+            } else {
+                currentFilter = { type: 'all', value: null };
+            }
+            
+            selectedStudents.clear();
+            renderTable();
+            updateFilterStatus();
+        }
+
+        function clearFilters() {
+            document.getElementById('filterNumber').value = '';
+            document.getElementById('filterExamCode').value = '';
+            document.getElementById('filterClass').value = '';
+            currentFilter = { type: 'all', value: null };
+            selectedStudents.clear();
+            renderTable();
+            updateFilterStatus();
+        }
+
+        function updateFilterStatus() {
+            const status = document.getElementById('filterStatus');
+            if (!status) return;
+            
+            if (currentFilter.type === 'all') {
+                status.innerHTML = '';
+            } else {
+                const labels = {
+                    number: 'Okul No',
+                    examCode: 'Sınav Kodu',
+                    class: 'Sınıf'
+                };
+                status.innerHTML = `<span class="filter-badge">Aktif Filtre: ${labels[currentFilter.type]} = ${currentFilter.value}</span>`;
+            }
+        }
+
+        function selectAllStudents() {
+            const filtered = getFilteredSubmissions();
+            filtered.forEach(s => selectedStudents.add(s.id));
+            document.querySelectorAll('.student-checkbox').forEach(cb => cb.checked = true);
+            document.getElementById('selectAllCheckbox').checked = true;
+            updateSelectedCount();
+        }
+
+        function deselectAllStudents() {
+            selectedStudents.clear();
+            document.querySelectorAll('.student-checkbox').forEach(cb => cb.checked = false);
+            document.getElementById('selectAllCheckbox').checked = false;
+            updateSelectedCount();
+        }
+
+        function updateSelectedCount() {
+            const countElement = document.getElementById('selectedCount');
+            if (countElement) {
+                countElement.textContent = selectedStudents.size;
+            }
+        }
+
+        async function deleteSingleStudent(id) {
+            if (!db) return;
+            try {
+                await deleteDoc(doc(db, "quiz_submissions", id));
+                selectedStudents.delete(id);
+                updateSelectedCount();
+                alert('Öğrenci başarıyla silindi!');
+            } catch (error) {
+                console.error('Silme hatası:', error);
+                alert('Silme işlemi başarısız: ' + error.message);
+            }
+        }
+
+        async function deleteSelectedStudents() {
+            if (selectedStudents.size === 0) {
+                alert('Lütfen silmek için öğrenci seçin!');
+                return;
+            }
+            
+            if (!confirm(`Seçili ${selectedStudents.size} öğrenciyi silmek istediğinize emin misiniz?\n\nBu işlem geri alınamaz!`)) {
+                return;
+            }
+            
+            if (!db) return;
+            
+            try {
+                const deletePromises = Array.from(selectedStudents).map(id => 
+                    deleteDoc(doc(db, "quiz_submissions", id))
+                );
+                await Promise.all(deletePromises);
+                selectedStudents.clear();
+                updateSelectedCount();
+                alert(`${deletePromises.length} öğrenci başarıyla silindi!`);
+            } catch (error) {
+                console.error('Toplu silme hatası:', error);
+                alert('Silme işlemi başarısız: ' + error.message);
+            }
+        }
+
+        async function deleteFilteredStudents() {
+            const filtered = getFilteredSubmissions();
+            
+            if (filtered.length === 0) {
+                alert('Silinecek öğrenci bulunamadı!');
+                return;
+            }
+            
+            const filterText = currentFilter.type === 'all' ? 'tüm' : 'filtrelenmiş';
+            if (!confirm(`${filterText.toUpperCase()} ${filtered.length} öğrenciyi silmek istediğinize emin misiniz?\n\nBu işlem geri alınamaz!`)) {
+                return;
+            }
+            
+            if (!db) return;
+            
+            try {
+                const deletePromises = filtered.map(s => 
+                    deleteDoc(doc(db, "quiz_submissions", s.id))
+                );
+                await Promise.all(deletePromises);
+                selectedStudents.clear();
+                updateSelectedCount();
+                alert(`${filtered.length} öğrenci başarıyla silindi!`);
+            } catch (error) {
+                console.error('Filtrelileri silme hatası:', error);
+                alert('Silme işlemi başarısız: ' + error.message);
+            }
+        }
+
+        async function deleteAllStudents() {
+            if (allSubmissions.length === 0) {
+                alert('Silinecek öğrenci bulunamadı!');
+                return;
+            }
+            
+            const confirmation = prompt(`TÜM ${allSubmissions.length} ÖĞRENCİYİ SİLMEK İSTEDİĞİNİZE EMİN MİSİNİZ?\n\nBu işlem GERİ ALINAMAZ!\n\nOnaylamak için "TÜMÜNÜ SİL" yazın:`);
+            
+            if (confirmation !== 'TÜMÜNÜ SİL') {
+                alert('İşlem iptal edildi.');
+                return;
+            }
+            
+            if (!db) return;
+            
+            try {
+                const deletePromises = allSubmissions.map(s => 
+                    deleteDoc(doc(db, "quiz_submissions", s.id))
+                );
+                await Promise.all(deletePromises);
+                selectedStudents.clear();
+                updateSelectedCount();
+                alert(`Tüm ${deletePromises.length} öğrenci başarıyla silindi!`);
+            } catch (error) {
+                console.error('Tümünü silme hatası:', error);
+                alert('Silme işlemi başarısız: ' + error.message);
+            }
         }
 
         initializeFirebase();
