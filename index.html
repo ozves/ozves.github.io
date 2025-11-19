@@ -2,46 +2,66 @@
 <html lang="tr">
 <head>
     <meta charset="UTF-8">
+    <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate, max-age=0, pre-check=0, post-check=0">
+    <meta http-equiv="Pragma" content="no-cache">
+    <meta http-equiv="Expires" content="-1">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Öğrenci Sınav Uygulaması</title>
+    <title>Öğrenci Sınav Uygulaması (Firestore Destekli)</title>
     <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800&display=swap" rel="stylesheet">
     <style>
-        body { font-family: 'Inter', sans-serif; background-color: #f3f4f6; display:flex;justify-content:center;align-items:center;min-height:100vh;margin:0;padding:1rem;}
-        .app-card { background-color:white;padding:2.5rem;border-radius:1.5rem;box-shadow:0 10px 15px -3px rgba(0,0,0,0.1);max-width:450px;width:90%;}
+        body { font-family: 'Inter', sans-serif; background-color: #f3f4f6; display:flex;justify-content:center;align-items:center;min-height:100vh;margin:0;}
+        .app-card { background-color:white;padding:2.5rem;border-radius:1.5rem;box-shadow:0 10px 15px -3px rgba(0,0,0,0.1),0 4px 6px -2px rgba(0,0,0,0.05);max-width:450px;width:90%;transition:all .3s;position:relative;}
         .header-bg { background: linear-gradient(135deg,#4f46e5 0%,#818cf8 100%); color:white;padding:1rem 0;border-radius:1rem 1rem 0 0;margin:-2.5rem -2.5rem 1.5rem -2.5rem;text-align:center;}
-        .button { transition:all .2s; }
-        .button:hover { transform:translateY(-2px); }
-        .filter-badge { display: inline-block; background: #e0e7ff; color: #4338ca; padding: 0.25rem 0.75rem; border-radius: 0.5rem; margin: 0.25rem; font-size: 0.875rem; font-weight: 600; }
+        .button{transition:all .2s;box-shadow:0 4px 6px rgba(0,0,0,0.1)}
+        .button:hover{transform:translateY(-1px);box-shadow:0 6px 10px rgba(0,0,0,0.15)}
+        @media (max-width:640px){ .app-card{padding:1.5rem;border-radius:1rem} .header-bg{margin:-1.5rem -1.5rem 1rem -1.5rem;padding:.75rem 0} }
     </style>
 </head>
 <body>
+
     <div id="app" class="app-card">
         <div id="loginHeader" class="header-bg">
             <h1 class="text-2xl font-extrabold">Öğrenci Girişi</h1>
         </div>
         <div id="mainContentArea">
             <div id="loadingIndicator" class="text-center py-10">
-                <svg class="animate-spin h-5 w-5 text-indigo-500 mx-auto" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                <svg class="animate-spin h-8 w-8 text-indigo-500 mx-auto" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
                     <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
                     <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
                 </svg>
-                <p class="text-sm text-gray-500 mt-2">Sistem Başlatılıyor...</p>
-                <p id="systemStatus" class="text-xs text-gray-400 mt-4"></p>
+                <p class="text-sm text-gray-500 mt-4 font-semibold">Sınav Verileri Yükleniyor...</p>
+                <p id="systemStatus" class="text-xs text-gray-400 mt-2">Sunucu bağlantısı kuruluyor</p>
             </div>
         </div>
     </div>
 
+    <div id="customModal" class="fixed inset-0 bg-gray-900 bg-opacity-70 hidden items-center justify-center p-4 z-50">
+        <div id="modalContent" class="bg-white rounded-xl p-8 max-w-sm w-full text-center shadow-2xl transform transition-all scale-100"></div>
+    </div>
+
+    <div style="position:fixed; bottom:10px; right:10px; opacity:0.5;">
+        <button id="adminUploadBtn" class="bg-red-500 text-white text-xs p-2 rounded">Veritabanına Soruları Yükle (Admin)</button>
+    </div>
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
         import { getAuth, signInAnonymously, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
-        import { getFirestore, collection, query, where, getDocs, addDoc, updateDoc, deleteDoc, doc, serverTimestamp, onSnapshot } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+        import { getFirestore, doc, setDoc, collection, onSnapshot, serverTimestamp, query, where, getDocs, deleteDoc, getDoc, addDoc, updateDoc } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
         
-        let db, auth, userId = null, isAuthReady = false;
-        const TEACHER_CODE = 'OGRETMEN34';
-        const EXAM_CODE = '111';
-        const TEACHER_NAME = 'Öztürk sevinç (biyoloji Öğretmeni)';
-        const TIME_LIMIT_SECONDS = 600;
-        
+        let db;
+        let auth;
+        let userId = null;
+        let isAuthReady = false;
+
+        // --- ARTIK SABİT DEĞİŞKENLER YOK, HEPSİ BOŞ ---
+        // Bu veriler Firestore'dan çekilecek
+        let TEACHER_CODE = null;
+        let EXAM_CODE = null;
+        let TEACHER_NAME = null;
+        let TIME_LIMIT_SECONDS = null;
+        let quizQuestions = [];
+        // ----------------------------------------------
+
         const firebaseConfig = {
             apiKey: "AIzaSyCHhFAHbWnclad6yFuI-Pw9gX6F_Dx1B2c",
             authDomain: "online-sinav-b3644.firebaseapp.com",
@@ -51,131 +71,17 @@
             appId: "1:965507531268:web:94cfd13774a40b6cf16b51"
         };
 
-        const quizQuestions = [
-          { "question": "Canlıları benzerlik, farklılık ve akrabalılık derecelerine göre gruplara ayırma ilke ve ölçütlerini belirleyen bilim dalına ne ad verilir?", "options": ["Morfoloji", "Histoloji", "Biyokimya", "Taksonomi", "Fizyoloji"], "answer": "Taksonomi" },
-          { "question": "Aşağıdakilerden hangisi, ortak özelliklere, genetik mirasa sahip olan ve birbirleriyle çiftleşip verimli döl verebilen canlılar grubu?", "options": ["Cins", "Aile", "Şube", "Âlem", "Tür"], "answer": "Tür" },
-          { "question": "Günümüzde canlıların akrabalılık ilişkilerine göre yapılan sınıflandırma sistemi?", "options": ["Yapısal", "Yapay", "Sistematik", "Doğal (Filogenetik)", "Ekolojik"], "answer": "Doğal (Filogenetik)" },
-          { "question": "İkili adlandırma yöntemini öneren İsveçli doğa bilimci kimdir?", "options": ["Aristoteles", "Galileo", "Carl Linneaus", "Darwin", "Mendel"], "answer": "Carl Linneaus" },
-        ];
-
-        let selectedAnswers = Array(quizQuestions.length).fill(null);
-        let questionOrder = Array.from({length: quizQuestions.length}, (_, i) => i);
-        let currentQuestionIndex = 0, resumeStartIndex = 0, timeLeft = TIME_LIMIT_SECONDS, isTeacherMode = false;
-        let studentData = {}, focusLossCount = 0, currentSessionDocId = null, timerInterval;
-        
-        // Öğretmen paneli için değişkenler
-        let allSubmissions = [];
-        let currentFilter = { type: 'all', value: null };
-        let selectedStudents = new Set();
-
-        async function initializeFirebase() {
-            try {
-                const app = initializeApp(firebaseConfig);
-                db = getFirestore(app);
-                auth = getAuth(app);
-                document.getElementById('systemStatus').textContent = 'Oturum açılıyor...';
-                await signInAnonymously(auth);
-                onAuthStateChanged(auth, (user) => {
-                    userId = user?.uid || null;
-                    isAuthReady = true;
-                    document.getElementById('loadingIndicator')?.classList.add('hidden');
-                    showLoginForm();
-                });
-            } catch (error) {
-                console.error("Firebase hatası:", error);
-                document.getElementById('mainContentArea').innerHTML = `<p class="text-red-600">Hata: ${error.message}</p>`;
-            }
-        }
-
-        function showLoginForm() {
-            if (!isAuthReady) return;
-            document.getElementById('app').classList.remove('max-w-3xl', 'max-w-4xl');
-            document.getElementById('app').classList.add('max-w-md');
-            const content = `
-                <div class="space-y-4">
-                    <div class="text-center p-2 bg-indigo-50 rounded-lg">
-                        <p class="text-xs text-gray-500">Sınavı Hazırlayan:</p>
-                        <p class="font-bold text-indigo-700">${TEACHER_NAME}</p>
-                    </div>
-                    <input id="examCodeInput" type="text" placeholder="Sınav Kodu (111)" class="w-full p-3 border border-gray-300 rounded-lg" required>
-                    <input id="nameInput" type="text" placeholder="Adınız Soyadınız" class="w-full p-3 border border-gray-300 rounded-lg" required>
-                    <input id="numberInput" type="number" placeholder="Okul Numaranız" class="w-full p-3 border border-gray-300 rounded-lg" required>
-                    <input id="classInput" type="text" placeholder="Sınıfınız (10A)" class="w-full p-3 border border-gray-300 rounded-lg" required>
-                    <button id="startQuizButton" class="button w-full bg-indigo-600 hover:bg-indigo-700 text-white font-semibold py-3 rounded-lg">Sınava Başla</button>
-                    <button id="teacherLoginButton" class="button w-full bg-gray-200 hover:bg-gray-300 text-gray-800 font-semibold py-2 rounded-lg text-sm">Öğretmen Girişi</button>
-                </div>
-            `;
-            document.getElementById('mainContentArea').innerHTML = content;
-            document.getElementById('startQuizButton').addEventListener('click', handleStudentLogin);
-            document.getElementById('teacherLoginButton').addEventListener('click', showTeacherLogin);
-        }
-
-        async function handleStudentLogin() {
-            const name = document.getElementById('nameInput').value.trim();
-            const number = document.getElementById('numberInput').value.trim();
-            const className = document.getElementById('classInput').value.trim();
-            const examCode = document.getElementById('examCodeInput').value.trim().toUpperCase();
-            
-            if (!name || !number || !className || !examCode) {
-                alert("Lütfen tüm alanları doldurun.");
-                return;
-            }
-            if (examCode !== EXAM_CODE) {
-                alert("Hatalı sınav kodu!");
-                return;
-            }
-
-            studentData = { name, number, className, examCode };
-            isTeacherMode = false;
-            const studentKey = `${examCode}_${number}`;
-            
-            const completed = await checkCompletedExam(studentKey);
-            if (completed) {
-                alert(`Bu sınavı tamamladınız!\nPuan: ${completed.score}`);
-                return;
-            }
-
-            const existing = await checkExistingSession(studentKey);
-            if (existing) {
-                alert(`Daha önce başladınız.\nKalan süre: ${Math.floor(existing.timeLeft / 60)} dk`);
-                questionOrder = existing.questionOrder || [];
-                selectedAnswers = existing.selectedAnswers || Array(quizQuestions.length).fill(null);
-                currentQuestionIndex = existing.currentQuestionIndex || 0;
-                timeLeft = existing.timeLeft || TIME_LIMIT_SECONDS;
-                focusLossCount = existing.focusLossCount || 0;
-                currentSessionDocId = existing.id;
-                resumeStartIndex = currentQuestionIndex;
-                showQuiz();
-                return;
-            }
-
-            questionOrder = seededShuffle(Array.from({length: quizQuestions.length}, (_, i) => i), number);
-            selectedAnswers = Array(quizQuestions.length).fill(null);
-            currentQuestionIndex = 0;
-            resumeStartIndex = 0;
-            focusLossCount = 0;
-            timeLeft = TIME_LIMIT_SECONDS;
-            currentSessionDocId = null;
-            showQuiz();
-        }
-
-        async function checkCompletedExam(studentKey) {
-            if (!db) return null;
-            try {
-                const q = query(collection(db, "quiz_submissions"), where("studentKey", "==", studentKey));
-                const snap = await getDocs(q);
-                return snap.empty ? null : { score: snap.docs[0].data().score };
-            } catch (e) { console.error(e); return null; }
-        }
-
-        async function checkExistingSession(studentKey) {
-            if (!db) return null;
-            try {
-                const q = query(collection(db, "active_sessions"), where("studentKey", "==", studentKey));
-                const snap = await getDocs(q);
-                return snap.empty ? null : { id: snap.docs[0].id, ...snap.docs[0].data() };
-            } catch (e) { console.error(e); return null; }
-        }
+        let selectedAnswers = [];
+        let questionOrder = [];
+        let currentQuestionIndex = 0;
+        let resumeStartIndex = 0; 
+        let timerInterval = null;
+        let timeLeft = 0;
+        let isTeacherMode = false;
+        let studentData = {};
+        let focusLossCount = 0;
+        let autoSaveInterval = null;
+        let currentSessionDocId = null;
 
         function seededShuffle(array, seed) {
             let hash = 0;
@@ -196,140 +102,248 @@
             return shuffled;
         }
 
+        async function initializeFirebase() {
+            try {
+                const app = initializeApp(firebaseConfig);
+                db = getFirestore(app);
+                auth = getAuth(app);
+                document.getElementById('systemStatus').textContent = 'Oturum açılıyor...';
+                await signInAnonymously(auth);
+                
+                onAuthStateChanged(auth, async (user) => {
+                    if (user) {
+                        userId = user.uid;
+                        isAuthReady = true;
+                        document.getElementById('systemStatus').textContent = 'Veriler indiriliyor...';
+                        // Önce verileri çek, sonra ekranı göster
+                        await loadExamData();
+                    }
+                });
+            } catch (error) {
+                console.error("Firebase başlatılırken hata oluştu:", error);
+                document.getElementById('mainContentArea').innerHTML = `<p class="text-red-600 text-center">Bağlantı Hatası: ${error.message}</p>`;
+            }
+        }
+
+        // --- YENİ FONKSİYON: Veritabanından Ayarları ve Soruları Çek ---
+        async function loadExamData() {
+            try {
+                // 1. Ayarları Çek (Config)
+                const configRef = doc(db, "exam_settings", "config");
+                const configSnap = await getDoc(configRef);
+
+                if (configSnap.exists()) {
+                    const data = configSnap.data();
+                    TEACHER_CODE = data.teacher_code;
+                    EXAM_CODE = data.exam_code;
+                    TEACHER_NAME = data.teacher_name;
+                    TIME_LIMIT_SECONDS = data.time_limit;
+                } else {
+                    throw new Error("Sınav ayarları bulunamadı! (Veritabanı boş)");
+                }
+
+                // 2. Soruları Çek
+                const questionsRef = doc(db, "questions_pool", "biology_exam");
+                const questionsSnap = await getDoc(questionsRef);
+
+                if (questionsSnap.exists()) {
+                    const qData = questionsSnap.data();
+                    quizQuestions = qData.questions_list;
+                } else {
+                    // Eğer soru yoksa boş array (veya hata)
+                    console.warn("Soru havuzu boş.");
+                    quizQuestions = [];
+                }
+
+                // Yükleme bitti, giriş ekranını göster
+                document.getElementById('loadingIndicator').classList.add('hidden');
+                showLoginForm();
+
+            } catch (error) {
+                console.error("Veri çekme hatası:", error);
+                document.getElementById('loadingIndicator').innerHTML = `
+                    <p class="text-red-600 font-bold">Sınav Yüklenemedi</p>
+                    <p class="text-xs text-gray-500 mt-2">Lütfen internet bağlantınızı kontrol edin veya öğretmeninize haber verin.</p>
+                    <p class="text-xs text-red-400 mt-2">${error.message}</p>
+                `;
+            }
+        }
+
+        function showLoginForm() {
+            if (!isAuthReady || !EXAM_CODE) return; // Veriler gelmediyse açma
+
+            document.getElementById('app').classList.remove('max-w-3xl', 'max-w-4xl');
+            document.getElementById('app').classList.add('max-w-md');
+            document.getElementById('loginHeader').innerHTML = '<h1 class="text-2xl font-extrabold">Öğrenci Girişi</h1>';
+            const timeInMinutes = Math.floor(TIME_LIMIT_SECONDS / 60);
+            
+            const content = `
+                <div class="space-y-4">
+                    <div class="text-center p-2 bg-indigo-50 rounded-lg shadow-sm">
+                        <p class="text-xs text-gray-500">Sınavı Hazırlayan:</p>
+                        <p class="font-bold text-indigo-700">${TEACHER_NAME}</p>
+                    </div>
+                    <div class="p-3 bg-red-100 border border-red-300 rounded-lg text-red-700 font-medium text-sm text-center shadow-inner">
+                        <p class="font-bold">ÖNEMLİ UYARI:</p>
+                        <p>Sınav süreniz tam olarak <span class="text-red-900">${timeInMinutes} dakika</span>'dır.</p>
+                    </div>
+                    <input id="examCodeInput" type="text" placeholder="Sınav Kodu (Örn: ${EXAM_CODE})" class="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 shadow-sm uppercase" required>
+                    <input id="nameInput" type="text" placeholder="Adınız Soyadınız" class="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 shadow-sm" required>
+                    <input id="numberInput" type="number" placeholder="Okul Numaranız" class="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 shadow-sm" required>
+                    <input id="classInput" type="text" placeholder="Sınıfınız (Örn: 10A)" class="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 shadow-sm" required>
+                    <button id="startQuizButton" class="button w-full bg-indigo-600 hover:bg-indigo-700 text-white font-semibold py-3 rounded-lg shadow-md">Sınava Başla</button>
+                    <button id="teacherLoginButton" class="button w-full bg-gray-200 hover:bg-gray-300 text-gray-800 font-semibold py-2 rounded-lg text-sm shadow-sm">Öğretmen Girişi</button>
+                </div>
+            `;
+            document.getElementById('mainContentArea').innerHTML = content;
+            document.getElementById('startQuizButton').addEventListener('click', handleStudentLogin);
+            document.getElementById('teacherLoginButton').addEventListener('click', showTeacherLogin);
+        }
+
+        async function handleStudentLogin() {
+            const name = document.getElementById('nameInput').value.trim();
+            const number = document.getElementById('numberInput').value.trim();
+            const className = document.getElementById('classInput').value.trim();
+            const examCodeInput = document.getElementById('examCodeInput').value.trim().toUpperCase();
+            
+            if (!name || !number || !className || !examCodeInput) {
+                showCustomAlert("Eksik Bilgi", "Lütfen tüm alanları doldurun.");
+                return;
+            }
+
+            if (examCodeInput !== EXAM_CODE) {
+                showCustomAlert("Hatalı Sınav Kodu", `Girdiğiniz sınav kodu geçersizdir.`);
+                return;
+            }
+
+            studentData = { name, number, className, examCode: EXAM_CODE };
+            isTeacherMode = false;
+            const studentKey = `${EXAM_CODE}_${number}`;
+            
+            // Veritabanı kontrolleri
+            const completedExam = await checkCompletedExam(studentKey);
+            if (completedExam) {
+                await showCustomAlert("Sınav Tamamlandı", `Bu sınavı daha önce tamamladınız!\nPuanınız: ${completedExam.score}`);
+                return;
+            }
+
+            const existingSession = await checkExistingSession(studentKey);
+            if (existingSession) {
+                await showCustomAlert("Oturum Bulundu", `Kaldığınız yerden devam ediyorsunuz.`);
+                
+                studentData = { 
+                    name: existingSession.name || name, 
+                    number: existingSession.number || number, 
+                    className: existingSession.className || className, 
+                    examCode: existingSession.examCode || EXAM_CODE 
+                };
+                questionOrder = existingSession.questionOrder || [];
+                selectedAnswers = existingSession.selectedAnswers || Array(quizQuestions.length).fill(null);
+                currentQuestionIndex = existingSession.currentQuestionIndex || 0;
+                timeLeft = existingSession.timeLeft || TIME_LIMIT_SECONDS;
+                focusLossCount = existingSession.focusLossCount || 0;
+                currentSessionDocId = existingSession.id;
+                resumeStartIndex = currentQuestionIndex;
+
+                showQuiz();
+                return;
+            }
+
+            // Yeni Oturum
+            questionOrder = seededShuffle(Array.from({length: quizQuestions.length}, (_, i) => i), number);
+            selectedAnswers = Array(quizQuestions.length).fill(null);
+            currentQuestionIndex = 0;
+            resumeStartIndex = 0;
+            focusLossCount = 0;
+            timeLeft = TIME_LIMIT_SECONDS;
+            currentSessionDocId = null;
+
+            showQuiz();
+        }
+
+        async function checkCompletedExam(studentKey) {
+            if (!db) return null;
+            const q = query(collection(db, "quiz_submissions"), where("studentKey", "==", studentKey));
+            const snap = await getDocs(q);
+            if (!snap.empty) return snap.docs[0].data();
+            return null;
+        }
+
+        async function checkExistingSession(studentKey) {
+            if (!db) return null;
+            const q = query(collection(db, "active_sessions"), where("studentKey", "==", studentKey));
+            const snap = await getDocs(q);
+            if (!snap.empty) return { id: snap.docs[0].id, ...snap.docs[0].data() };
+            return null;
+        }
+
         function showTeacherLogin() {
             document.getElementById('loginHeader').innerHTML = '<h1 class="text-2xl font-extrabold">Öğretmen Girişi</h1>';
             const content = `
                 <div class="space-y-4">
-                    <input id="teacherCodeInput" type="password" placeholder="Öğretmen Kodu" class="w-full p-3 border border-gray-300 rounded-lg" required>
-                    <button id="teacherLoginButtonExecute" class="button w-full bg-red-600 hover:bg-red-700 text-white font-semibold py-3 rounded-lg">Giriş Yap</button>
-                    <button id="backToStudentLogin" class="button w-full bg-gray-200 hover:bg-gray-300 text-gray-800 font-semibold py-2 rounded-lg text-sm">Öğrenci Girişine Dön</button>
+                    <input id="teacherCodeInput" type="password" placeholder="Öğretmen Kodu" class="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-red-500 focus:border-red-500 shadow-sm" required>
+                    <button id="teacherLoginButtonExecute" class="button w-full bg-red-600 hover:bg-red-700 text-white font-semibold py-3 rounded-lg shadow-md">Giriş Yap</button>
+                    <button id="backToStudentLogin" class="button w-full bg-gray-200 hover:bg-gray-300 text-gray-800 font-semibold py-2 rounded-lg text-sm shadow-sm">Öğrenci Girişine Dön</button>
                 </div>
             `;
             document.getElementById('mainContentArea').innerHTML = content;
-            document.getElementById('teacherLoginButtonExecute').addEventListener('click', () => {
-                if (document.getElementById('teacherCodeInput').value === TEACHER_CODE) {
-                    isTeacherMode = true;
-                    showTeacherPanel();
-                } else {
-                    alert("Hatalı kod!");
-                }
-            });
+            document.getElementById('teacherLoginButtonExecute').addEventListener('click', handleTeacherLogin);
             document.getElementById('backToStudentLogin').addEventListener('click', showLoginForm);
         }
 
+        function handleTeacherLogin() {
+            const code = document.getElementById('teacherCodeInput').value.trim();
+            if (code === TEACHER_CODE) {
+                isTeacherMode = true;
+                showTeacherPanel();
+            } else {
+                showCustomAlert("Hata", "Girdiğiniz öğretmen kodu yanlış.");
+            }
+        }
+
         function showQuiz() {
-            document.getElementById('app').classList.remove('max-w-md', 'max-w-4xl');
+            document.getElementById('app').classList.remove('max-w-md');
             document.getElementById('app').classList.add('max-w-3xl');
             document.getElementById('loginHeader').innerHTML = `<h1 class="text-2xl font-extrabold">${studentData.name}</h1>`;
-            
+
             const quizHtml = `
-                <div class="mb-6 pb-3 border-b flex justify-between items-center">
-                    <p class="text-gray-600">${studentData.className} / ${studentData.number}</p>
-                    <p class="text-indigo-600">Soru: <span id="questionCounter">1/${quizQuestions.length}</span></p>
-                    <div id="timerDisplay" class="text-2xl font-bold text-red-600 bg-red-100 p-2 rounded-lg">10:00</div>
+                <div class="flex flex-col sm:flex-row justify-between items-center mb-6 border-b pb-3 space-y-2 sm:space-y-0">
+                    <p class="text-base text-gray-600">${studentData.className} / ${studentData.number}</p>
+                    <p class="text-sm font-medium text-indigo-600">Soru: <span id="questionCounter">1/${quizQuestions.length}</span></p>
+                    <div id="timerDisplay" class="text-xl font-bold text-red-600 bg-red-100 p-2 rounded-lg shadow-md">--:--</div>
                 </div>
-                <div id="questionsContainer" class="min-h-[250px]"></div>
+                <div id="questionsContainer" class="space-y-8 min-h-[250px] flex flex-col justify-between"></div>
+                <div id="focusWarning" class="hidden mt-4 p-2 bg-yellow-100 border border-yellow-400 text-yellow-800 rounded-lg text-sm font-medium text-center"></div>
+                <div id="autoSaveIndicator" class="mt-2 p-2 bg-green-50 border border-green-300 text-green-700 rounded-lg text-xs text-center">✓ İlerlemeniz güvende</div>
                 <div class="mt-8 pt-4 border-t flex justify-between">
-                    <button id="prevButton" class="button bg-gray-500 hover:bg-gray-600 text-white font-semibold py-3 px-6 rounded-lg disabled:opacity-50" disabled>Önceki</button>
-                    <button id="nextButton" class="button bg-indigo-600 hover:bg-indigo-700 text-white font-semibold py-3 px-6 rounded-lg">Sonraki</button>
+                    <button id="prevButton" class="button bg-gray-500 hover:bg-gray-600 text-white font-semibold py-3 px-6 rounded-lg shadow-md disabled:opacity-50" disabled>Önceki</button>
+                    <button id="nextButton" class="button bg-indigo-600 hover:bg-indigo-700 text-white font-semibold py-3 px-6 rounded-lg shadow-xl">Sonraki</button>
                 </div>
             `;
             document.getElementById('mainContentArea').innerHTML = quizHtml;
-            
+
             renderQuestion(currentQuestionIndex);
             startTimer();
             setupFocusCheck();
-            
+            startAutoSave();
+
             document.getElementById('prevButton').addEventListener('click', handlePrevQuestion);
             document.getElementById('nextButton').addEventListener('click', handleNextQuestion);
         }
 
-        function renderQuestion(index) {
-            const container = document.getElementById('questionsContainer');
-            if (!container) return;
-            
-            const origIdx = questionOrder[index];
-            const q = quizQuestions[origIdx];
-            const shuffledOpts = seededShuffle(q.options, studentData.number + origIdx);
-            const currAns = selectedAnswers[origIdx];
-
-            const html = `
-                <div class="p-6 border-4 border-indigo-200 rounded-xl bg-white">
-                    <div class="text-2xl font-bold text-indigo-700 mb-4">Soru ${index + 1}:</div>
-                    <p class="text-lg mb-6">${q.question}</p>
-                    <div class="space-y-3">
-                        ${shuffledOpts.map(opt => `
-                            <label class="flex items-center p-3 border rounded-lg cursor-pointer hover:bg-indigo-50 ${currAns === opt ? 'bg-indigo-100 border-indigo-500' : 'border-gray-200'}">
-                                <input type="radio" name="answer" value="${opt}" ${currAns === opt ? 'checked' : ''} class="mr-3">
-                                <span>${opt}</span>
-                            </label>
-                        `).join('')}
-                    </div>
-                </div>
-            `;
-            container.innerHTML = html;
-            document.getElementById('questionCounter').textContent = `${index + 1}/${quizQuestions.length}`;
-            
-            container.querySelectorAll('input[type="radio"]').forEach(radio => {
-                radio.addEventListener('change', async (e) => {
-                    selectedAnswers[origIdx] = e.target.value;
-                    await saveProgress();
-                });
-            });
-            
-            updateNavButtons(index);
-        }
-
-        function updateNavButtons(index) {
-            document.getElementById('prevButton').disabled = index <= resumeStartIndex;
-            const nextBtn = document.getElementById('nextButton');
-            if (index === quizQuestions.length - 1) {
-                nextBtn.textContent = "Bitir ve Gönder";
-                nextBtn.classList.add('bg-green-600', 'hover:bg-green-700');
-            } else {
-                nextBtn.textContent = "Sonraki";
-            }
-        }
-
-        async function handleNextQuestion() {
-            if (currentQuestionIndex < quizQuestions.length - 1) {
-                currentQuestionIndex++;
-                renderQuestion(currentQuestionIndex);
+        async function startAutoSave() {
+            await saveProgress();
+            autoSaveInterval = setInterval(async () => {
                 await saveProgress();
-            } else {
-                finishQuiz();
-            }
-        }
-
-        async function handlePrevQuestion() {
-            if (currentQuestionIndex > resumeStartIndex) {
-                currentQuestionIndex--;
-                renderQuestion(currentQuestionIndex);
-                await saveProgress();
-            }
-        }
-
-        function startTimer() {
-            if (timerInterval) clearInterval(timerInterval);
-            const display = document.getElementById('timerDisplay');
-            timerInterval = setInterval(() => {
-                timeLeft--;
-                if (timeLeft < 0) {
-                    clearInterval(timerInterval);
-                    finishQuiz();
-                }
-                const m = Math.floor(timeLeft / 60);
-                const s = timeLeft % 60;
-                display.textContent = `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
-            }, 1000);
+            }, 10000);
         }
 
         async function saveProgress() {
             if (!db || isTeacherMode) return;
-            const key = `${studentData.examCode}_${studentData.number}`;
-            const data = {
+            const studentKey = `${studentData.examCode}_${studentData.number}`;
+            const progressData = {
                 ...studentData,
-                studentKey: key,
+                studentKey: studentKey,
                 questionOrder,
                 selectedAnswers,
                 currentQuestionIndex,
@@ -339,410 +353,290 @@
             };
             try {
                 if (currentSessionDocId) {
-                    await updateDoc(doc(db, "active_sessions", currentSessionDocId), data);
+                    await updateDoc(doc(db, "active_sessions", currentSessionDocId), progressData);
                 } else {
-                    const ref = await addDoc(collection(db, "active_sessions"), data);
-                    currentSessionDocId = ref.id;
+                    const docRef = await addDoc(collection(db, "active_sessions"), progressData);
+                    currentSessionDocId = docRef.id;
                 }
-            } catch (e) { console.error(e); }
-        }
-
-        async function finishQuiz() {
-            clearInterval(timerInterval);
-            const correct = selectedAnswers.filter((a, i) => a === quizQuestions[i].answer).length;
-            const score = (correct / quizQuestions.length) * 100;
-            
-            await saveSubmission(correct, score);
-            if (currentSessionDocId) await deleteDoc(doc(db, "active_sessions", currentSessionDocId));
-            
-            document.getElementById('mainContentArea').innerHTML = `
-                <div class="text-center py-6">
-                    <h2 class="text-3xl font-bold ${score >= 50 ? 'text-green-600' : 'text-red-600'} mb-4">Sınav Bitti!</h2>
-                    <p class="text-lg mb-6">Puanınız: <span class="text-2xl font-bold">${score.toFixed(2)}</span> / 100</p>
-                    <p class="text-gray-600 mb-6">Doğru: ${correct} / ${quizQuestions.length}</p>
-                    <button onclick="location.reload()" class="button bg-indigo-600 hover:bg-indigo-700 text-white font-semibold py-3 px-6 rounded-lg">Başa Dön</button>
-                </div>
-            `;
-        }
-
-        async function saveSubmission(correct, score) {
-            if (!db || isTeacherMode) return;
-            const key = `${studentData.examCode}_${studentData.number}`;
-            try {
-                await addDoc(collection(db, "quiz_submissions"), {
-                    ...studentData,
-                    studentKey: key,
-                    score: score.toFixed(2),
-                    correct,
-                    timeSpent: TIME_LIMIT_SECONDS - timeLeft,
-                    timestamp: serverTimestamp()
-                });
-            } catch (e) { console.error(e); }
+                const indicator = document.getElementById('autoSaveIndicator');
+                if(indicator) { indicator.classList.add('bg-green-200'); setTimeout(() => indicator.classList.remove('bg-green-200'), 300); }
+            } catch (error) { console.error("Kaydetme hatası", error); }
         }
 
         function setupFocusCheck() {
-            window.addEventListener('blur', () => { focusLossCount++; });
+            const warningElement = document.getElementById('focusWarning');
+            const handleBlur = () => {
+                if (!isTeacherMode) {
+                    focusLossCount++;
+                    warningElement.classList.remove('hidden');
+                    warningElement.innerHTML = `UYARI: Sayfadan ${focusLossCount} kez ayrıldınız!`;
+                    saveProgress();
+                }
+            };
+            const handleFocus = () => { warningElement.classList.add('hidden'); };
+            window.addEventListener('blur', handleBlur);
+            window.addEventListener('focus', handleFocus);
+            document.getElementById('app').addEventListener('quiz-ended', () => {
+                window.removeEventListener('blur', handleBlur);
+                window.removeEventListener('focus', handleFocus);
+            });
         }
 
-        function showTeacherPanel() {
-            document.getElementById('app').classList.remove('max-w-md', 'max-w-3xl');
-            document.getElementById('app').classList.add('max-w-4xl');
-            document.getElementById('loginHeader').innerHTML = '<h1 class="text-2xl font-extrabold">Öğretmen Paneli</h1>';
+        function renderQuestion(quizIndex) {
+            const container = document.getElementById('questionsContainer');
+            const originalIndex = questionOrder[quizIndex];
+            const q = quizQuestions[originalIndex];
             
-            const content = `
-                <div class="space-y-4">
-                    <div class="flex justify-between items-center">
-                        <button id="teacherLogout" class="button bg-red-600 hover:bg-red-700 text-white font-semibold py-2 px-4 rounded-lg">Çıkış Yap</button>
-                        <div class="text-sm text-gray-600">
-                            Toplam: <span id="totalCount" class="font-bold">0</span> öğrenci
-                        </div>
-                    </div>
-                    
-                    <!-- Filtreleme Bölümü -->
-                    <div class="bg-gray-50 p-4 rounded-lg border border-gray-200">
-                        <h3 class="font-bold text-gray-700 mb-3">🔍 Filtreleme</h3>
-                        <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
-                            <div>
-                                <label class="block text-xs text-gray-600 mb-1">Sınıf Numarası</label>
-                                <input id="filterNumber" type="text" placeholder="Okul numarası girin" class="w-full p-2 border border-gray-300 rounded text-sm">
-                            </div>
-                            <div>
-                                <label class="block text-xs text-gray-600 mb-1">Sınav Kodu</label>
-                                <input id="filterExamCode" type="text" placeholder="Sınav kodu girin" class="w-full p-2 border border-gray-300 rounded text-sm">
-                            </div>
-                            <div>
-                                <label class="block text-xs text-gray-600 mb-1">Sınıf</label>
-                                <select id="filterClass" class="w-full p-2 border border-gray-300 rounded text-sm">
-                                    <option value="">Tümü</option>
-                                </select>
-                            </div>
-                        </div>
-                        <div class="flex gap-2 mt-3">
-                            <button id="applyFilter" class="button bg-indigo-600 hover:bg-indigo-700 text-white font-semibold py-2 px-4 rounded text-sm">Filtrele</button>
-                            <button id="clearFilter" class="button bg-gray-300 hover:bg-gray-400 text-gray-800 font-semibold py-2 px-4 rounded text-sm">Filtreyi Temizle</button>
-                        </div>
-                        <div id="filterStatus" class="mt-2 text-sm"></div>
-                    </div>
-                    
-                    <!-- Toplu İşlemler -->
-                    <div class="bg-yellow-50 p-4 rounded-lg border border-yellow-200">
-                        <h3 class="font-bold text-gray-700 mb-3">⚡ Toplu İşlemler</h3>
-                        <div class="flex flex-wrap gap-2">
-                            <button id="selectAll" class="button bg-blue-500 hover:bg-blue-600 text-white font-semibold py-2 px-4 rounded text-sm">Tümünü Seç</button>
-                            <button id="deselectAll" class="button bg-gray-400 hover:bg-gray-500 text-white font-semibold py-2 px-4 rounded text-sm">Seçimi Kaldır</button>
-                            <button id="deleteSelected" class="button bg-orange-600 hover:bg-orange-700 text-white font-semibold py-2 px-4 rounded text-sm">Seçilenleri Sil (<span id="selectedCount">0</span>)</button>
-                            <button id="deleteFiltered" class="button bg-red-600 hover:bg-red-700 text-white font-semibold py-2 px-4 rounded text-sm">Filtrelileri Sil</button>
-                            <button id="deleteAll" class="button bg-red-800 hover:bg-red-900 text-white font-semibold py-2 px-4 rounded text-sm">Tümünü Sil</button>
-                        </div>
-                    </div>
-                    
-                    <!-- Sonuçlar Tablosu -->
-                    <div id="submissionsTable" class="bg-white rounded-lg shadow overflow-auto">
-                        <p class="p-4 text-gray-500">Sonuçlar yükleniyor...</p>
+            // Options'ları karıştır
+            const shuffledOptions = seededShuffle(q.options, studentData.number + 'options' + originalIndex);
+            const currentAnswer = selectedAnswers[originalIndex];
+
+            const questionHtml = `
+                <div class="question-card p-6 border-4 border-indigo-200 rounded-xl bg-white shadow-xl flex-grow">
+                    <div class="text-2xl font-bold text-indigo-700 mb-4">Soru ${quizIndex + 1}:</div>
+                    <p class="font-semibold text-gray-800 text-lg mb-6">${q.question}</p>
+                    <div class="options-container space-y-3">
+                        ${shuffledOptions.map((option) => {
+                            const isChecked = currentAnswer === option;
+                            return `
+                                <label class="flex items-center space-x-3 p-3 border border-gray-200 rounded-lg cursor-pointer hover:bg-indigo-50 transition duration-150 ${isChecked ? 'bg-indigo-100 border-indigo-500 shadow-md' : 'bg-white'}">
+                                    <input type="radio" name="q_current" value="${option}" class="text-indigo-600 h-5 w-5" ${isChecked ? 'checked' : ''}>
+                                    <span class="text-gray-700 font-medium">${option}</span>
+                                </label>
+                            `;
+                        }).join('')}
                     </div>
                 </div>
             `;
-            document.getElementById('mainContentArea').innerHTML = content;
+            container.innerHTML = questionHtml;
+            document.getElementById('questionCounter').textContent = `${quizIndex + 1}/${quizQuestions.length}`;
             
-            // Event listeners
-            document.getElementById('teacherLogout').addEventListener('click', showLoginForm);
-            document.getElementById('applyFilter').addEventListener('click', applyFilters);
-            document.getElementById('clearFilter').addEventListener('click', clearFilters);
-            document.getElementById('selectAll').addEventListener('click', selectAllStudents);
-            document.getElementById('deselectAll').addEventListener('click', deselectAllStudents);
-            document.getElementById('deleteSelected').addEventListener('click', deleteSelectedStudents);
-            document.getElementById('deleteFiltered').addEventListener('click', deleteFilteredStudents);
-            document.getElementById('deleteAll').addEventListener('click', deleteAllStudents);
+            container.querySelectorAll('input[type="radio"]').forEach(radio => {
+                radio.addEventListener('change', async (e) => {
+                    selectedAnswers[originalIndex] = e.target.value;
+                    renderQuestion(quizIndex); // UI güncellemek için yeniden render (basit çözüm)
+                    await saveProgress();
+                });
+            });
             
-            loadTeacherData();
+            updateNavigationButtons(quizIndex);
         }
 
-        function loadTeacherData() {
-            if (!db || !isAuthReady) return;
-            const q = query(collection(db, "quiz_submissions"));
-            onSnapshot(q, (snap) => {
-                allSubmissions = snap.docs.map(d => ({ id: d.id, ...d.data() })).sort((a, b) => parseFloat(b.score) - parseFloat(a.score));
-                
-                // Sınıf dropdown'ını doldur
-                const classes = [...new Set(allSubmissions.map(s => s.className))].sort();
-                const classSelect = document.getElementById('filterClass');
-                if (classSelect) {
-                    classSelect.innerHTML = '<option value="">Tümü</option>' + 
-                        classes.map(c => `<option value="${c}">${c}</option>`).join('');
+        function updateNavigationButtons(quizIndex) {
+            const prevButton = document.getElementById('prevButton');
+            const nextButton = document.getElementById('nextButton');
+            prevButton.disabled = quizIndex <= resumeStartIndex;
+
+            if (quizIndex === quizQuestions.length - 1) {
+                nextButton.textContent = "Sınavı Bitir ve Gönder";
+                nextButton.classList.replace('bg-indigo-600', 'bg-green-600');
+                nextButton.classList.replace('hover:bg-indigo-700', 'hover:bg-green-700');
+            } else {
+                nextButton.textContent = "Sonraki";
+                nextButton.classList.replace('bg-green-600', 'bg-indigo-600');
+                nextButton.classList.replace('hover:bg-green-700', 'hover:bg-indigo-700');
+            }
+        }
+
+        async function handleNextQuestion() {
+            if (currentQuestionIndex < quizQuestions.length - 1) {
+                currentQuestionIndex++;
+                renderQuestion(currentQuestionIndex);
+                await saveProgress();
+            } else {
+                finishQuiz(false);
+            }
+        }
+        
+        async function handlePrevQuestion() { 
+            if (currentQuestionIndex > resumeStartIndex) { 
+                currentQuestionIndex--;
+                renderQuestion(currentQuestionIndex);
+                await saveProgress();
+            } 
+        }
+
+        function startTimer() {
+            if (timerInterval) clearInterval(timerInterval);
+            const timerDisplay = document.getElementById('timerDisplay');
+            timerInterval = setInterval(() => {
+                timeLeft--;
+                if (timeLeft < 0) {
+                    clearInterval(timerInterval);
+                    timeLeft = 0;
+                    finishQuiz(true);
                 }
-                
-                renderTable();
+                updateTimerDisplay(timerDisplay);
+            }, 1000);
+            updateTimerDisplay(timerDisplay);
+        }
+
+        function updateTimerDisplay(displayElement) {
+            const minutes = Math.floor(timeLeft / 60);
+            const seconds = timeLeft % 60;
+            displayElement.textContent = `${String(minutes).padStart(2,'0')}:${String(seconds).padStart(2,'0')}`;
+        }
+
+        async function finishQuiz(isTimeUp = false) {
+            clearInterval(timerInterval);
+            if (autoSaveInterval) clearInterval(autoSaveInterval);
+            document.getElementById('app').dispatchEvent(new Event('quiz-ended'));
+            
+            const confirmationMessage = isTimeUp ? 'Süre doldu!' : 'Sınavı bitirmek istediğinizden emin misiniz?';
+            const confirmed = isTimeUp ? true : await showCustomConfirmation(confirmationMessage);
+            
+            if (confirmed) {
+                const results = calculateScore();
+                await saveSubmission(results);
+                if (currentSessionDocId) await deleteDoc(doc(db, "active_sessions", currentSessionDocId));
+                showResultScreen(results, isTimeUp);
+            } else {
+                if (!isTimeUp) startTimer();
+            }
+        }
+
+        function calculateScore() {
+            let correctCount = 0, incorrectCount = 0, emptyCount = 0;
+            quizQuestions.forEach((q, originalIndex) => {
+                const answer = selectedAnswers[originalIndex];
+                if (answer === null) emptyCount++;
+                else if (answer === q.answer) correctCount++;
+                else incorrectCount++;
             });
+            return { correct: correctCount, incorrect: incorrectCount, empty: emptyCount, total: quizQuestions.length, score: correctCount * 100 / quizQuestions.length };
         }
 
-        function getFilteredSubmissions() {
-            let filtered = [...allSubmissions];
-            
-            if (currentFilter.type === 'number' && currentFilter.value) {
-                filtered = filtered.filter(s => s.number === currentFilter.value);
-            } else if (currentFilter.type === 'examCode' && currentFilter.value) {
-                filtered = filtered.filter(s => s.examCode === currentFilter.value);
-            } else if (currentFilter.type === 'class' && currentFilter.value) {
-                filtered = filtered.filter(s => s.className === currentFilter.value);
-            }
-            
-            return filtered;
+        async function saveSubmission(results) {
+            const timeSpent = TIME_LIMIT_SECONDS - timeLeft;
+            const submissionData = {
+                ...studentData,
+                studentKey: `${studentData.examCode}_${studentData.number}`,
+                score: results.score.toFixed(2),
+                correct: results.correct,
+                incorrect: results.incorrect,
+                empty: results.empty,
+                timeSpent: timeSpent,
+                timestamp: serverTimestamp(),
+                focusLossCount: focusLossCount,
+                questionOrder: questionOrder,
+                allAnswers: selectedAnswers
+            };
+            await addDoc(collection(db, "quiz_submissions"), submissionData);
         }
 
-        function renderTable() {
-            const filtered = getFilteredSubmissions();
-            const table = document.getElementById('submissionsTable');
-            const totalCount = document.getElementById('totalCount');
+        function showResultScreen(results, isTimeUp) {
+            document.getElementById('app').classList.add('max-w-md');
+            document.getElementById('loginHeader').innerHTML = '<h1 class="text-2xl font-extrabold">Sonuç</h1>';
             
-            if (totalCount) totalCount.textContent = filtered.length;
-            
-            if (filtered.length === 0) {
-                table.innerHTML = '<p class="p-4 text-gray-500">Sonuç bulunamadı.</p>';
-                return;
-            }
-            
-            const html = `
-                <table class="min-w-full border-collapse">
-                    <thead class="bg-indigo-100 sticky top-0">
-                        <tr>
-                            <th class="border p-2 text-left">
-                                <input type="checkbox" id="selectAllCheckbox" class="cursor-pointer">
-                            </th>
-                            <th class="border p-2 text-left">Ad</th>
-                            <th class="border p-2 text-left">No</th>
-                            <th class="border p-2 text-left">Sınıf</th>
-                            <th class="border p-2 text-left">Puan</th>
-                            <th class="border p-2 text-left">Doğru</th>
-                            <th class="border p-2 text-left">Sınav Kodu</th>
-                            <th class="border p-2 text-center">İşlem</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        ${filtered.map(s => `
-                            <tr class="hover:bg-gray-50">
-                                <td class="border p-2">
-                                    <input type="checkbox" class="student-checkbox cursor-pointer" data-id="${s.id}">
-                                </td>
-                                <td class="border p-2">${s.name}</td>
-                                <td class="border p-2 font-mono">${s.number}</td>
-                                <td class="border p-2">${s.className}</td>
-                                <td class="border p-2 font-bold ${parseFloat(s.score) >= 50 ? 'text-green-600' : 'text-red-600'}">${s.score}</td>
-                                <td class="border p-2">${s.correct}/${quizQuestions.length}</td>
-                                <td class="border p-2 text-xs bg-indigo-50">${s.examCode}</td>
-                                <td class="border p-2 text-center">
-                                    <button class="delete-single button bg-red-500 hover:bg-red-600 text-white font-semibold py-1 px-3 rounded text-xs" data-id="${s.id}" data-name="${s.name}">
-                                        🗑️ Sil
-                                    </button>
-                                </td>
-                            </tr>
-                        `).join('')}
-                    </tbody>
-                </table>
+            const resultHtml = `
+                <div class="text-center py-6">
+                    <h2 class="text-3xl font-bold mb-2">Sınav Bitti!</h2>
+                    ${isTimeUp ? '<p class="text-red-500 font-semibold">Süre Doldu.</p>' : ''}
+                    <div class="grid grid-cols-2 gap-4 text-left max-w-sm mx-auto p-4 bg-gray-50 rounded-xl shadow-inner mb-6 mt-4">
+                        <div class="font-semibold text-gray-600">Puan:</div>
+                        <div class="font-bold text-2xl text-indigo-600">${results.score.toFixed(2)}</div>
+                    </div>
+                    <button id="returnToLogin" class="button bg-indigo-600 text-white font-semibold py-3 px-6 rounded-lg shadow-md">Çıkış</button>
+                </div>
             `;
+            document.getElementById('mainContentArea').innerHTML = resultHtml;
+            document.getElementById('returnToLogin').addEventListener('click', () => location.reload());
+        }
+
+        function showTeacherPanel() {
+            document.getElementById('app').classList.remove('max-w-md');
+            document.getElementById('app').classList.add('max-w-4xl');
+            document.getElementById('loginHeader').innerHTML = '<h1 class="text-2xl font-extrabold">Öğretmen Paneli</h1>';
+
+            const teacherHtml = `
+                <div class="flex justify-between items-center mb-4">
+                    <p class="text-sm text-gray-600">Sonuçlar canlı güncellenir.</p>
+                    <button id="teacherLogout" class="button bg-red-600 text-white text-sm py-2 px-4 rounded">Çıkış</button>
+                </div>
+                <div class="overflow-x-auto bg-white rounded-lg shadow border border-indigo-100">
+                    <table class="min-w-full divide-y divide-gray-200">
+                        <thead class="bg-indigo-50">
+                            <tr>
+                                <th class="px-4 py-3 text-left text-xs font-medium text-indigo-700 uppercase">Ad Soyad</th>
+                                <th class="px-4 py-3 text-left text-xs font-medium text-indigo-700 uppercase">Puan</th>
+                                <th class="px-4 py-3 text-left text-xs font-medium text-indigo-700 uppercase">Süre</th>
+                            </tr>
+                        </thead>
+                        <tbody id="submissionsTableBody" class="bg-white divide-y divide-gray-200">
+                             <tr><td colspan="3" class="p-4 text-center">Yükleniyor...</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            `;
+            document.getElementById('mainContentArea').innerHTML = teacherHtml;
+            document.getElementById('teacherLogout').addEventListener('click', () => location.reload());
             
-            table.innerHTML = html;
-            
-            // Checkbox event listeners
-            document.getElementById('selectAllCheckbox')?.addEventListener('change', (e) => {
-                const checkboxes = document.querySelectorAll('.student-checkbox');
-                checkboxes.forEach(cb => {
-                    cb.checked = e.target.checked;
-                    if (e.target.checked) {
-                        selectedStudents.add(cb.dataset.id);
-                    } else {
-                        selectedStudents.delete(cb.dataset.id);
-                    }
-                });
-                updateSelectedCount();
+            // Sonuçları dinle
+            const q = query(collection(db, "quiz_submissions"));
+            onSnapshot(q, (snapshot) => {
+                const subs = snapshot.docs.map(doc => doc.data()).sort((a,b) => parseFloat(b.score) - parseFloat(a.score));
+                const tbody = document.getElementById('submissionsTableBody');
+                if(tbody) {
+                    tbody.innerHTML = subs.map(s => `
+                        <tr>
+                            <td class="px-4 py-2 text-sm font-medium">${s.name}</td>
+                            <td class="px-4 py-2 text-sm font-bold text-indigo-600">${s.score}</td>
+                            <td class="px-4 py-2 text-sm text-gray-500">${Math.floor(s.timeSpent/60)}dk</td>
+                        </tr>
+                    `).join('');
+                }
             });
-            
-            document.querySelectorAll('.student-checkbox').forEach(cb => {
-                cb.addEventListener('change', (e) => {
-                    if (e.target.checked) {
-                        selectedStudents.add(e.target.dataset.id);
-                    } else {
-                        selectedStudents.delete(e.target.dataset.id);
-                    }
-                    updateSelectedCount();
-                });
-            });
-            
-            // Tek silme butonları
-            document.querySelectorAll('.delete-single').forEach(btn => {
-                btn.addEventListener('click', async (e) => {
-                    const id = e.target.dataset.id;
-                    const name = e.target.dataset.name;
-                    if (confirm(`"${name}" adlı öğrenciyi silmek istediğinize emin misiniz?`)) {
-                        await deleteSingleStudent(id);
-                    }
-                });
+        }
+
+        // --- YARDIMCI ARAÇLAR ---
+        function showCustomConfirmation(message) {
+            return new Promise(resolve => {
+                const modal = document.getElementById('customModal');
+                const content = document.getElementById('modalContent');
+                content.innerHTML = `<p class="mb-4">${message}</p> <div class="flex justify-center gap-2"><button id="mYes" class="bg-green-600 text-white px-4 py-2 rounded">Evet</button><button id="mNo" class="bg-gray-300 px-4 py-2 rounded">Hayır</button></div>`;
+                modal.classList.remove('hidden'); modal.classList.add('flex');
+                document.getElementById('mYes').onclick = () => { modal.classList.add('hidden'); resolve(true); };
+                document.getElementById('mNo').onclick = () => { modal.classList.add('hidden'); resolve(false); };
             });
         }
+        
+        function showCustomAlert(title, message) {
+            return new Promise(resolve => {
+                const modal = document.getElementById('customModal');
+                document.getElementById('modalContent').innerHTML = `<h3 class="font-bold mb-2">${title}</h3><p class="mb-4">${message}</p><button id="mOk" class="bg-indigo-600 text-white px-4 py-2 rounded">Tamam</button>`;
+                modal.classList.remove('hidden'); modal.classList.add('flex');
+                document.getElementById('mOk').onclick = () => { modal.classList.add('hidden'); resolve(); };
+            });
+        }
 
-        function applyFilters() {
-            const numberFilter = document.getElementById('filterNumber').value.trim();
-            const examCodeFilter = document.getElementById('filterExamCode').value.trim().toUpperCase();
-            const classFilter = document.getElementById('filterClass').value;
+        // --- GEÇİCİ YÖNETİCİ FONKSİYONU: Veritabanına Soruları Bas ---
+        // Bunu sadece bir kere kullanın sonra butonu HTML'den silin.
+        document.getElementById('adminUploadBtn').addEventListener('click', async () => {
+            if(!confirm("Soruları veritabanına yüklemek istiyor musunuz? Bu işlem mevcut soruların üzerine yazar.")) return;
             
-            if (numberFilter) {
-                currentFilter = { type: 'number', value: numberFilter };
-            } else if (examCodeFilter) {
-                currentFilter = { type: 'examCode', value: examCodeFilter };
-            } else if (classFilter) {
-                currentFilter = { type: 'class', value: classFilter };
-            } else {
-                currentFilter = { type: 'all', value: null };
-            }
-            
-            selectedStudents.clear();
-            renderTable();
-            updateFilterStatus();
-        }
+            const questionsToUpload = [        
+              { "question": "Canlıları benzerlik, farklılık ve akrabalık derecelerine göre gruplara ayırma ilke ve ölçütlerini belirleyen bilim dalına ne ad verilir?", "options": ["Morfoloji", "Histoloji", "Biyokimya", "Taksonomi", "Fizyoloji"], "answer": "Taksonomi" },
+              { "question": "Aşağıdakilerden hangisi, ortak özelliklere, genetik mirasa sahip olan ve birbirleriyle çiftleşip **verimli döl verebilen** canlılar grubu olarak tanımlanan sınıflandırmadaki temel kategoridir?", "options": ["Cins", "Aile", "Şube", "Âlem", "Tür"], "answer": "Tür" },
+              { "question": "Günümüzde canlıların akrabalık ilişkilerine göre yapılan, morfolojik, anatomik ve genetik gibi birçok özelliğin dikkate alındığı sınıflandırma sistemi ne olarak adlandırılır?", "options": ["Yapısal Sınıflandırma", "Yapay Sınıflandırma", "Sistematik Sınıflandırma", "Doğal (Filogenetik) Sınıflandırma", "Ekolojik Sınıflandırma"], "answer": "Doğal (Filogenetik) Sınıflandırma" },
+              { "question": "Türlerin isimlendirilmesinde kullanılan ikili (binominal) adlandırma yöntemini öneren İsveçli doğa bilimci aşağıdakilerden hangisidir?", "options": ["Aristoteles", "Galileo Galilei", "Carl Linneaus", "Charles Darwin", "Gregor Mendel"], "answer": "Carl Linneaus" },
+              { "question": "Metinde verilen 'Fritillaria imperialis' tür adında, 'imperialis' kelimesi hangi görevi ifade eder?", "options": ["Cins Adı", "Aile Adı", "Tamamlayıcı Ad", "Takım Adı", "Tür Adı"], "answer": "Tamamlayıcı Ad" },
+              { "question": "İkili adlandırma yöntemine göre, bir tür adının birinci kelimesi (Cins adı) ile ilgili doğru kural aşağıdakilerden hangisidir?", "options": ["Tamamen büyük harflerle yazılır.", "İlk harfi küçük yazılır.", "Akrabalık derecesini ifade eder.", "İlk harfi büyük yazılır.", "Tek başına türü ifade eder."], "answer": "İlk harfi büyük yazılır" },
+              { "question": "Sınıflandırma bilimi, mikroorganizmaların doğru tanımlanması ve tehlike altındaki türlerin korunması gibi konulara katkı sağlayarak hangi iki alandaki araştırmaların temelini oluşturur?", "options": ["Ekonomi ve Hukuk", "Eğitim ve Kültür", "Sağlık ve Çevre Koruma", "Ulaşım ve İletişim", "Sanayi ve Tarım"], "answer": "Sağlık ve Çevre Koruma" },
+              { "question": "Metinde bahsedilen taksonomik hiyerarşi sıralamasına göre, birbirine yakın türlerin bir araya gelmesiyle oluşan kategoriden başlayarak doğru sıralama (küçükten büyüğe) hangi seçenekte verilmiştir?", "options": ["Tür, Cins, Aile, Takım, Sınıf, Şube, Âlem", "Cins, Aile, Takım, Sınıf, Şube, Âlem", "Cins, Sınıf, Aile, Takım, Şube, Âlem", "Cins, Aile, Sınıf, Takım, Şube, Âlem", "Âlem, Şube, Sınıf, Takım, Aile, Cins"], "answer": "Cins, Aile, Takım, Sınıf, Şube, Âlem" },
+              { "question": "Doğal (filogenetik) sınıflandırmada canlılar arasındaki akrabalık ilişkilerinin moleküler düzeyde belirlenmesine en önemli katkıyı sağlayan inceleme yöntemi aşağıdakilerden hangisidir?", "options": ["Morfolojik yapıların karşılaştırılması", "Yaşadıkları habitatların incelenmesi", "Fiziksel özelliklerin ölçülmesi", "Beslenme alışkanlıklarının gözlemlenmesi", "DNA ve RNA dizilerinin incelenmesi"], "answer": "DNA ve RNA dizilerinin incelenmesi" },
+              { "question": "Aşağıdakilerden hangisi, taksonomi biliminin canlıları tanımlama çalışmalarında yararlandığı biyolojinin alt dalları arasında **sayılmamıştır**?", "options": ["Morfoloji", "Anatomi", "Histoloji", "Biyokimya", "Ekoloji"], "answer": "Ekoloji" }
+            ];
 
-        function clearFilters() {
-            document.getElementById('filterNumber').value = '';
-            document.getElementById('filterExamCode').value = '';
-            document.getElementById('filterClass').value = '';
-            currentFilter = { type: 'all', value: null };
-            selectedStudents.clear();
-            renderTable();
-            updateFilterStatus();
-        }
-
-        function updateFilterStatus() {
-            const status = document.getElementById('filterStatus');
-            if (!status) return;
-            
-            if (currentFilter.type === 'all') {
-                status.innerHTML = '';
-            } else {
-                const labels = {
-                    number: 'Okul No',
-                    examCode: 'Sınav Kodu',
-                    class: 'Sınıf'
-                };
-                status.innerHTML = `<span class="filter-badge">Aktif Filtre: ${labels[currentFilter.type]} = ${currentFilter.value}</span>`;
-            }
-        }
-
-        function selectAllStudents() {
-            const filtered = getFilteredSubmissions();
-            filtered.forEach(s => selectedStudents.add(s.id));
-            document.querySelectorAll('.student-checkbox').forEach(cb => cb.checked = true);
-            document.getElementById('selectAllCheckbox').checked = true;
-            updateSelectedCount();
-        }
-
-        function deselectAllStudents() {
-            selectedStudents.clear();
-            document.querySelectorAll('.student-checkbox').forEach(cb => cb.checked = false);
-            document.getElementById('selectAllCheckbox').checked = false;
-            updateSelectedCount();
-        }
-
-        function updateSelectedCount() {
-            const countElement = document.getElementById('selectedCount');
-            if (countElement) {
-                countElement.textContent = selectedStudents.size;
-            }
-        }
-
-        async function deleteSingleStudent(id) {
-            if (!db) return;
             try {
-                await deleteDoc(doc(db, "quiz_submissions", id));
-                selectedStudents.delete(id);
-                updateSelectedCount();
-                alert('Öğrenci başarıyla silindi!');
-            } catch (error) {
-                console.error('Silme hatası:', error);
-                alert('Silme işlemi başarısız: ' + error.message);
+                await setDoc(doc(db, "questions_pool", "biology_exam"), {
+                    questions_list: questionsToUpload
+                });
+                alert("BAŞARILI: Sorular veritabanına yüklendi! Şimdi bu butonu koddan silin ve Firebase Kurallarından 'questions_pool' için 'write' iznini 'false' yapın.");
+                location.reload();
+            } catch (e) {
+                alert("HATA: " + e.message);
             }
-        }
-
-        async function deleteSelectedStudents() {
-            if (selectedStudents.size === 0) {
-                alert('Lütfen silmek için öğrenci seçin!');
-                return;
-            }
-            
-            if (!confirm(`Seçili ${selectedStudents.size} öğrenciyi silmek istediğinize emin misiniz?\n\nBu işlem geri alınamaz!`)) {
-                return;
-            }
-            
-            if (!db) return;
-            
-            try {
-                const deletePromises = Array.from(selectedStudents).map(id => 
-                    deleteDoc(doc(db, "quiz_submissions", id))
-                );
-                await Promise.all(deletePromises);
-                selectedStudents.clear();
-                updateSelectedCount();
-                alert(`${deletePromises.length} öğrenci başarıyla silindi!`);
-            } catch (error) {
-                console.error('Toplu silme hatası:', error);
-                alert('Silme işlemi başarısız: ' + error.message);
-            }
-        }
-
-        async function deleteFilteredStudents() {
-            const filtered = getFilteredSubmissions();
-            
-            if (filtered.length === 0) {
-                alert('Silinecek öğrenci bulunamadı!');
-                return;
-            }
-            
-            const filterText = currentFilter.type === 'all' ? 'tüm' : 'filtrelenmiş';
-            if (!confirm(`${filterText.toUpperCase()} ${filtered.length} öğrenciyi silmek istediğinize emin misiniz?\n\nBu işlem geri alınamaz!`)) {
-                return;
-            }
-            
-            if (!db) return;
-            
-            try {
-                const deletePromises = filtered.map(s => 
-                    deleteDoc(doc(db, "quiz_submissions", s.id))
-                );
-                await Promise.all(deletePromises);
-                selectedStudents.clear();
-                updateSelectedCount();
-                alert(`${filtered.length} öğrenci başarıyla silindi!`);
-            } catch (error) {
-                console.error('Filtrelileri silme hatası:', error);
-                alert('Silme işlemi başarısız: ' + error.message);
-            }
-        }
-
-        async function deleteAllStudents() {
-            if (allSubmissions.length === 0) {
-                alert('Silinecek öğrenci bulunamadı!');
-                return;
-            }
-            
-            const confirmation = prompt(`TÜM ${allSubmissions.length} ÖĞRENCİYİ SİLMEK İSTEDİĞİNİZE EMİN MİSİNİZ?\n\nBu işlem GERİ ALINAMAZ!\n\nOnaylamak için "TÜMÜNÜ SİL" yazın:`);
-            
-            if (confirmation !== 'TÜMÜNÜ SİL') {
-                alert('İşlem iptal edildi.');
-                return;
-            }
-            
-            if (!db) return;
-            
-            try {
-                const deletePromises = allSubmissions.map(s => 
-                    deleteDoc(doc(db, "quiz_submissions", s.id))
-                );
-                await Promise.all(deletePromises);
-                selectedStudents.clear();
-                updateSelectedCount();
-                alert(`Tüm ${deletePromises.length} öğrenci başarıyla silindi!`);
-            } catch (error) {
-                console.error('Tümünü silme hatası:', error);
-                alert('Silme işlemi başarısız: ' + error.message);
-            }
-        }
+        });
 
         initializeFirebase();
     </script>
