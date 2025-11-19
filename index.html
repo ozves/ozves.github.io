@@ -6,7 +6,7 @@
     <meta http-equiv="Pragma" content="no-cache">
     <meta http-equiv="Expires" content="-1">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Öğrenci Sınav Uygulaması (Firestore Destekli)</title>
+    <title>Öğrenci Sınav Uygulaması</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800&display=swap" rel="stylesheet">
     <style>
@@ -40,9 +40,6 @@
         <div id="modalContent" class="bg-white rounded-xl p-8 max-w-sm w-full text-center shadow-2xl transform transition-all scale-100"></div>
     </div>
 
-    <div style="position:fixed; bottom:10px; right:10px; opacity:0.5;">
-        <button id="adminUploadBtn" class="bg-red-500 text-white text-xs p-2 rounded">Veritabanına Soruları Yükle (Admin)</button>
-    </div>
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
         import { getAuth, signInAnonymously, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
@@ -53,15 +50,15 @@
         let userId = null;
         let isAuthReady = false;
 
-        // --- ARTIK SABİT DEĞİŞKENLER YOK, HEPSİ BOŞ ---
-        // Bu veriler Firestore'dan çekilecek
+        // Değişkenler (Veritabanından dolacak)
         let TEACHER_CODE = null;
         let EXAM_CODE = null;
         let TEACHER_NAME = null;
         let TIME_LIMIT_SECONDS = null;
         let quizQuestions = [];
-        // ----------------------------------------------
 
+        // NOT: Bu ayarların görünmesi güvenlik açığı DEĞİLDİR.
+        // Veritabanı güvenliğini "Firestore Rules" sağlar.
         const firebaseConfig = {
             apiKey: "AIzaSyCHhFAHbWnclad6yFuI-Pw9gX6F_Dx1B2c",
             authDomain: "online-sinav-b3644.firebaseapp.com",
@@ -115,20 +112,18 @@
                         userId = user.uid;
                         isAuthReady = true;
                         document.getElementById('systemStatus').textContent = 'Veriler indiriliyor...';
-                        // Önce verileri çek, sonra ekranı göster
                         await loadExamData();
                     }
                 });
             } catch (error) {
                 console.error("Firebase başlatılırken hata oluştu:", error);
-                document.getElementById('mainContentArea').innerHTML = `<p class="text-red-600 text-center">Bağlantı Hatası: ${error.message}</p>`;
+                document.getElementById('mainContentArea').innerHTML = `<p class="text-red-600 text-center font-bold p-4">Bağlantı Hatası: Lütfen internetinizi kontrol edip sayfayı yenileyin.</p>`;
             }
         }
 
-        // --- YENİ FONKSİYON: Veritabanından Ayarları ve Soruları Çek ---
         async function loadExamData() {
             try {
-                // 1. Ayarları Çek (Config)
+                // Ayarları Çek
                 const configRef = doc(db, "exam_settings", "config");
                 const configSnap = await getDoc(configRef);
 
@@ -139,38 +134,37 @@
                     TEACHER_NAME = data.teacher_name;
                     TIME_LIMIT_SECONDS = data.time_limit;
                 } else {
-                    throw new Error("Sınav ayarları bulunamadı! (Veritabanı boş)");
+                    throw new Error("Sınav ayarları veritabanında bulunamadı.");
                 }
 
-                // 2. Soruları Çek
+                // Soruları Çek
                 const questionsRef = doc(db, "questions_pool", "biology_exam");
                 const questionsSnap = await getDoc(questionsRef);
 
                 if (questionsSnap.exists()) {
                     const qData = questionsSnap.data();
-                    quizQuestions = qData.questions_list;
+                    quizQuestions = qData.questions_list || [];
                 } else {
-                    // Eğer soru yoksa boş array (veya hata)
                     console.warn("Soru havuzu boş.");
                     quizQuestions = [];
                 }
 
-                // Yükleme bitti, giriş ekranını göster
                 document.getElementById('loadingIndicator').classList.add('hidden');
                 showLoginForm();
 
             } catch (error) {
                 console.error("Veri çekme hatası:", error);
-                document.getElementById('loadingIndicator').innerHTML = `
-                    <p class="text-red-600 font-bold">Sınav Yüklenemedi</p>
-                    <p class="text-xs text-gray-500 mt-2">Lütfen internet bağlantınızı kontrol edin veya öğretmeninize haber verin.</p>
-                    <p class="text-xs text-red-400 mt-2">${error.message}</p>
+                document.getElementById('mainContentArea').innerHTML = `
+                    <div class="text-center p-4">
+                        <p class="text-red-600 font-bold text-lg">Sınav Verileri Yüklenemedi</p>
+                        <p class="text-gray-600 mt-2">Veritabanına erişilemiyor veya ayarlar eksik.</p>
+                    </div>
                 `;
             }
         }
 
         function showLoginForm() {
-            if (!isAuthReady || !EXAM_CODE) return; // Veriler gelmediyse açma
+            if (!isAuthReady || !EXAM_CODE) return;
 
             document.getElementById('app').classList.remove('max-w-3xl', 'max-w-4xl');
             document.getElementById('app').classList.add('max-w-md');
@@ -220,7 +214,6 @@
             isTeacherMode = false;
             const studentKey = `${EXAM_CODE}_${number}`;
             
-            // Veritabanı kontrolleri
             const completedExam = await checkCompletedExam(studentKey);
             if (completedExam) {
                 await showCustomAlert("Sınav Tamamlandı", `Bu sınavı daha önce tamamladınız!\nPuanınız: ${completedExam.score}`);
@@ -230,7 +223,6 @@
             const existingSession = await checkExistingSession(studentKey);
             if (existingSession) {
                 await showCustomAlert("Oturum Bulundu", `Kaldığınız yerden devam ediyorsunuz.`);
-                
                 studentData = { 
                     name: existingSession.name || name, 
                     number: existingSession.number || number, 
@@ -244,12 +236,10 @@
                 focusLossCount = existingSession.focusLossCount || 0;
                 currentSessionDocId = existingSession.id;
                 resumeStartIndex = currentQuestionIndex;
-
                 showQuiz();
                 return;
             }
 
-            // Yeni Oturum
             questionOrder = seededShuffle(Array.from({length: quizQuestions.length}, (_, i) => i), number);
             selectedAnswers = Array(quizQuestions.length).fill(null);
             currentQuestionIndex = 0;
@@ -257,7 +247,6 @@
             focusLossCount = 0;
             timeLeft = TIME_LIMIT_SECONDS;
             currentSessionDocId = null;
-
             showQuiz();
         }
 
@@ -387,7 +376,6 @@
             const originalIndex = questionOrder[quizIndex];
             const q = quizQuestions[originalIndex];
             
-            // Options'ları karıştır
             const shuffledOptions = seededShuffle(q.options, studentData.number + 'options' + originalIndex);
             const currentAnswer = selectedAnswers[originalIndex];
 
@@ -414,7 +402,7 @@
             container.querySelectorAll('input[type="radio"]').forEach(radio => {
                 radio.addEventListener('change', async (e) => {
                     selectedAnswers[originalIndex] = e.target.value;
-                    renderQuestion(quizIndex); // UI güncellemek için yeniden render (basit çözüm)
+                    renderQuestion(quizIndex);
                     await saveProgress();
                 });
             });
@@ -571,7 +559,6 @@
             document.getElementById('mainContentArea').innerHTML = teacherHtml;
             document.getElementById('teacherLogout').addEventListener('click', () => location.reload());
             
-            // Sonuçları dinle
             const q = query(collection(db, "quiz_submissions"));
             onSnapshot(q, (snapshot) => {
                 const subs = snapshot.docs.map(doc => doc.data()).sort((a,b) => parseFloat(b.score) - parseFloat(a.score));
@@ -588,7 +575,6 @@
             });
         }
 
-        // --- YARDIMCI ARAÇLAR ---
         function showCustomConfirmation(message) {
             return new Promise(resolve => {
                 const modal = document.getElementById('customModal');
@@ -608,35 +594,6 @@
                 document.getElementById('mOk').onclick = () => { modal.classList.add('hidden'); resolve(); };
             });
         }
-
-        // --- GEÇİCİ YÖNETİCİ FONKSİYONU: Veritabanına Soruları Bas ---
-        // Bunu sadece bir kere kullanın sonra butonu HTML'den silin.
-        document.getElementById('adminUploadBtn').addEventListener('click', async () => {
-            if(!confirm("Soruları veritabanına yüklemek istiyor musunuz? Bu işlem mevcut soruların üzerine yazar.")) return;
-            
-            const questionsToUpload = [        
-              { "question": "Canlıları benzerlik, farklılık ve akrabalık derecelerine göre gruplara ayırma ilke ve ölçütlerini belirleyen bilim dalına ne ad verilir?", "options": ["Morfoloji", "Histoloji", "Biyokimya", "Taksonomi", "Fizyoloji"], "answer": "Taksonomi" },
-              { "question": "Aşağıdakilerden hangisi, ortak özelliklere, genetik mirasa sahip olan ve birbirleriyle çiftleşip **verimli döl verebilen** canlılar grubu olarak tanımlanan sınıflandırmadaki temel kategoridir?", "options": ["Cins", "Aile", "Şube", "Âlem", "Tür"], "answer": "Tür" },
-              { "question": "Günümüzde canlıların akrabalık ilişkilerine göre yapılan, morfolojik, anatomik ve genetik gibi birçok özelliğin dikkate alındığı sınıflandırma sistemi ne olarak adlandırılır?", "options": ["Yapısal Sınıflandırma", "Yapay Sınıflandırma", "Sistematik Sınıflandırma", "Doğal (Filogenetik) Sınıflandırma", "Ekolojik Sınıflandırma"], "answer": "Doğal (Filogenetik) Sınıflandırma" },
-              { "question": "Türlerin isimlendirilmesinde kullanılan ikili (binominal) adlandırma yöntemini öneren İsveçli doğa bilimci aşağıdakilerden hangisidir?", "options": ["Aristoteles", "Galileo Galilei", "Carl Linneaus", "Charles Darwin", "Gregor Mendel"], "answer": "Carl Linneaus" },
-              { "question": "Metinde verilen 'Fritillaria imperialis' tür adında, 'imperialis' kelimesi hangi görevi ifade eder?", "options": ["Cins Adı", "Aile Adı", "Tamamlayıcı Ad", "Takım Adı", "Tür Adı"], "answer": "Tamamlayıcı Ad" },
-              { "question": "İkili adlandırma yöntemine göre, bir tür adının birinci kelimesi (Cins adı) ile ilgili doğru kural aşağıdakilerden hangisidir?", "options": ["Tamamen büyük harflerle yazılır.", "İlk harfi küçük yazılır.", "Akrabalık derecesini ifade eder.", "İlk harfi büyük yazılır.", "Tek başına türü ifade eder."], "answer": "İlk harfi büyük yazılır" },
-              { "question": "Sınıflandırma bilimi, mikroorganizmaların doğru tanımlanması ve tehlike altındaki türlerin korunması gibi konulara katkı sağlayarak hangi iki alandaki araştırmaların temelini oluşturur?", "options": ["Ekonomi ve Hukuk", "Eğitim ve Kültür", "Sağlık ve Çevre Koruma", "Ulaşım ve İletişim", "Sanayi ve Tarım"], "answer": "Sağlık ve Çevre Koruma" },
-              { "question": "Metinde bahsedilen taksonomik hiyerarşi sıralamasına göre, birbirine yakın türlerin bir araya gelmesiyle oluşan kategoriden başlayarak doğru sıralama (küçükten büyüğe) hangi seçenekte verilmiştir?", "options": ["Tür, Cins, Aile, Takım, Sınıf, Şube, Âlem", "Cins, Aile, Takım, Sınıf, Şube, Âlem", "Cins, Sınıf, Aile, Takım, Şube, Âlem", "Cins, Aile, Sınıf, Takım, Şube, Âlem", "Âlem, Şube, Sınıf, Takım, Aile, Cins"], "answer": "Cins, Aile, Takım, Sınıf, Şube, Âlem" },
-              { "question": "Doğal (filogenetik) sınıflandırmada canlılar arasındaki akrabalık ilişkilerinin moleküler düzeyde belirlenmesine en önemli katkıyı sağlayan inceleme yöntemi aşağıdakilerden hangisidir?", "options": ["Morfolojik yapıların karşılaştırılması", "Yaşadıkları habitatların incelenmesi", "Fiziksel özelliklerin ölçülmesi", "Beslenme alışkanlıklarının gözlemlenmesi", "DNA ve RNA dizilerinin incelenmesi"], "answer": "DNA ve RNA dizilerinin incelenmesi" },
-              { "question": "Aşağıdakilerden hangisi, taksonomi biliminin canlıları tanımlama çalışmalarında yararlandığı biyolojinin alt dalları arasında **sayılmamıştır**?", "options": ["Morfoloji", "Anatomi", "Histoloji", "Biyokimya", "Ekoloji"], "answer": "Ekoloji" }
-            ];
-
-            try {
-                await setDoc(doc(db, "questions_pool", "biology_exam"), {
-                    questions_list: questionsToUpload
-                });
-                alert("BAŞARILI: Sorular veritabanına yüklendi! Şimdi bu butonu koddan silin ve Firebase Kurallarından 'questions_pool' için 'write' iznini 'false' yapın.");
-                location.reload();
-            } catch (e) {
-                alert("HATA: " + e.message);
-            }
-        });
 
         initializeFirebase();
     </script>
