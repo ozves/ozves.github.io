@@ -434,12 +434,35 @@
         }
 
         function calculateScore() {
-            let c=0, i=0, e=0;
+            let c = 0, i = 0, e = 0;
+            
+            // DÜZELTME: selectedAnswers dizisi zaten orijinal soru sırasına (ID'sine) göre kaydediliyor.
+            // Bu yüzden burada 'questionOrder' kullanmamıza gerek yok, direkt 'idx' kullanmalıyız.
+            
             quizQuestions.forEach((q, idx) => {
-                const ans = selectedAnswers[questionOrder[idx]];
-                if(!ans) e++; else if(ans === q.answer) c++; else i++;
+                // ESKİ HATALI SATIR: const ans = selectedAnswers[questionOrder[idx]]; 
+                
+                // YENİ DOĞRU SATIR:
+                const ans = selectedAnswers[idx]; 
+
+                if (!ans) {
+                    e++; // Boş
+                } else if (ans === q.answer) {
+                    c++; // Doğru
+                } else {
+                    i++; // Yanlış
+                }
             });
-            return { correct:c, incorrect:i, empty:e, score: (c*100/quizQuestions.length).toFixed(2) };
+            
+            // Puan hesaplama (Virgülden sonra 2 basamak)
+            const calculatedScore = (c * 100 / quizQuestions.length).toFixed(2);
+            
+            return { 
+                correct: c, 
+                incorrect: i, 
+                empty: e, 
+                score: calculatedScore 
+            };
         }
 
         // --- SONUÇ EKRANI ve GRAFİK ---
