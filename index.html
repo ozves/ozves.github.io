@@ -3,9 +3,10 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Sınav Sistemi V14 (Gelişmiş Özellikler)</title>
+    <title>Sınav Sistemi V15 (Gelişmiş Özellikler)</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800&display=swap" rel="stylesheet">
     <style>
         body { font-family: 'Inter', sans-serif; background-color: #f3f4f6; display:flex;justify-content:center;align-items:center;min-height:100vh;margin:0;}
@@ -20,6 +21,18 @@
         ::-webkit-scrollbar-thumb:hover { background: #555; }
         .loader { border: 4px solid #f3f3f3; border-top: 4px solid #3498db; border-radius: 50%; width: 30px; height: 30px; animation: spin 1s linear infinite; margin: 0 auto; }
         @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+        .paste-area { 
+            border: 2px dashed #cbd5e0; 
+            border-radius: 0.5rem; 
+            padding: 1rem; 
+            background-color: #f9fafb; 
+            cursor: text;
+            min-height: 120px;
+        }
+        .paste-area:focus {
+            outline: none;
+            border-color: #4f46e5;
+        }
     </style>
 </head>
 <body>
@@ -876,6 +889,7 @@
                                     <th class="p-3 text-left">Süre</th>
                                     <th class="p-3 text-left">Odak Kaybı</th>
                                     <th class="p-3 text-left">IP</th>
+                                    <th class="p-3 text-left">Tarih/Saat</th>
                                     <th class="p-3 text-left">İşlem</th>
                                 </tr>
                             </thead>
@@ -926,7 +940,8 @@
                             <label class="font-bold text-teal-800">Hangi Sınav Kodu?</label>
                             <input id="uploadListCode" class="w-full p-2 border rounded uppercase" placeholder="ÖRN: 9A_MAT">
                         </div>
-                        <textarea id="listInput" rows="10" class="w-full p-3 text-xs border rounded" placeholder="Excel'den Kopyala (No | Sınıf | Ad Soyad)"></textarea>
+                        <div class="paste-area" id="listInput" contenteditable="true" placeholder="Excel'den Kopyala (No | Sınıf | Ad Soyad)"></div>
+                        <div class="text-xs text-gray-500 mt-1">Excel'den verileri kopyalayıp bu alana yapıştırın (Ctrl+V)</div>
                         <button id="btnUploadList" class="w-full mt-2 bg-teal-600 text-white py-2 rounded font-bold">Listeyi Kaydet</button>
                     </div>
                 </div>
@@ -1005,26 +1020,33 @@
                 }
             };
 
-            // --- LİSTE YÜKLEME ---
+            // --- LİSTE YÜKLEME (Geliştirilmiş) ---
             document.getElementById('btnUploadList').onclick = async () => {
                 const code = document.getElementById('uploadListCode').value.toUpperCase();
-                const txt = document.getElementById('listInput').value;
-                if(!code || !txt) return alert("Eksik bilgi");
+                const txt = document.getElementById('listInput').innerText || document.getElementById('listInput').textContent;
+                
+                if(!code || !txt.trim()) return alert("Eksik bilgi");
                 
                 const students = [];
                 const lines = txt.split('\n').filter(x => x.trim());
                 
                 lines.forEach(line => {
-                    const p = line.split('\t');
-                    if(p.length >= 3) {
-                        students.push({ number: p[0].trim(), className: p[1].trim(), name: p[2].trim() });
+                    // Hem tab hem de boşluk ile ayrılmış verileri destekle
+                    const parts = line.split('\t').length > 1 ? line.split('\t') : line.split(/\s{2,}/);
+                    if(parts.length >= 3) {
+                        students.push({ 
+                            number: parts[0].trim(), 
+                            className: parts[1].trim(), 
+                            name: parts[2].trim() 
+                        });
                     }
                 });
                 
-                if(students.length === 0) return alert("Liste formatı hatalı. Excel'den kopyaladığınızda emin olun.");
+                if(students.length === 0) return alert("Liste formatı hatalı. Excel'den kopyaladığınızdan emin olun.");
                 
                 await setDoc(doc(db, "student_lists", code), { students });
                 alert(`${students.length} öğrenci listeye eklendi.`);
+                document.getElementById('listInput').innerText = '';
             };
             
             // Initial Load
@@ -1034,10 +1056,23 @@
         // --- DASHBOARD YARDIMCILARI ---
         function loadResults() {
             const tbody = document.getElementById('resultsTableBody');
-            tbody.innerHTML = '<tr><td colspan="8" class="p-4 text-center">Yükleniyor...</td></tr>';
+            tbody.innerHTML = '<tr><td colspan="9" class="p-4 text-center">Yükleniyor...</td></tr>';
             
             onSnapshot(query(collection(db, "quiz_submissions"), where("timestamp", ">", new Date(0))), (snap) => {
-                allSubmissions = snap.docs.map(d => ({id: d.id, ...d.data()}));
+                allSubmissions = snap.docs.map(d => {
+                    const data = d.data();
+                    // Tarih formatını düzenle
+                    let dateTime = "Bilinmiyor";
+                    if (data.timestamp && data.timestamp.toDate) {
+                        const date = data.timestamp.toDate();
+                        dateTime = `${date.toLocaleDateString('tr-TR')} ${date.toLocaleTimeString('tr-TR')}`;
+                    }
+                    return {
+                        id: d.id,
+                        ...data,
+                        formattedDateTime: dateTime
+                    };
+                });
                 renderResultsTable();
                 updateClassFilter();
             });
@@ -1087,6 +1122,7 @@
                     <td class="p-3 text-xs">${timeDisplay}</td>
                     <td class="p-3 text-xs">${s.focusLossCount || 0}</td>
                     <td class="p-3 text-xs font-mono">${s.ipAddress || 'N/A'}</td>
+                    <td class="p-3 text-xs">${s.formattedDateTime}</td>
                     <td class="p-3">
                         <button onclick="window.deleteSub('${s.id}')" class="text-red-600 hover:underline text-xs">Sil</button>
                     </td>
@@ -1132,18 +1168,42 @@
         }
         
         window.exportToExcel = () => {
-            let csv = "\uFEFFAd Soyad,Numara,Sinif,Kod,Puan,Dogru,Yanlis,Bos,Sure,Dakika,Saniye,Odak Kaybı,IP Adresi\n";
-            allSubmissions.forEach(s => {
+            // Excel formatında export
+            const data = allSubmissions.map(s => {
                 const timeSpent = s.timeSpent || 0;
                 const minutes = Math.floor(timeSpent / 60);
                 const seconds = timeSpent % 60;
                 
-                csv += `"${s.name}",${s.number},${s.className},${s.examCode},${s.score},${s.correct},${s.incorrect},${s.empty},${timeSpent},${minutes},${seconds},${s.focusLossCount || 0},"${s.ipAddress || ''}"\n`;
+                let dateTime = "Bilinmiyor";
+                if (s.timestamp && s.timestamp.toDate) {
+                    const date = s.timestamp.toDate();
+                    dateTime = `${date.toLocaleDateString('tr-TR')} ${date.toLocaleTimeString('tr-TR')}`;
+                }
+                
+                return {
+                    'Ad Soyad': s.name || '',
+                    'Numara': s.number || '',
+                    'Sınıf': s.className || '',
+                    'Sınav Kodu': s.examCode || '',
+                    'Puan': s.score || 0,
+                    'Doğru Sayısı': s.correct || 0,
+                    'Yanlış Sayısı': s.incorrect || 0,
+                    'Boş Sayısı': s.empty || 0,
+                    'Toplam Süre (saniye)': timeSpent,
+                    'Dakika': minutes,
+                    'Saniye': seconds,
+                    'Odak Kaybı': s.focusLossCount || 0,
+                    'IP Adresi': s.ipAddress || '',
+                    'Tarih/Saat': dateTime
+                };
             });
-            const link = document.createElement("a");
-            link.href = "data:text/csv;charset=utf-8," + encodeURIComponent(csv);
-            link.download = "sinav_sonuclari.csv";
-            link.click();
+            
+            const ws = XLSX.utils.json_to_sheet(data);
+            const wb = XLSX.utils.book_new();
+            XLSX.utils.book_append_sheet(wb, ws, "Sınav Sonuçları");
+            
+            // Excel dosyasını indir
+            XLSX.writeFile(wb, "sinav_sonuclari.xlsx");
         }
 
         window.exportDetailedResults = () => {
@@ -1162,38 +1222,51 @@
                 return;
             }
             
-            let csv = "\uFEFFAd Soyad,Numara,Sinif,Kod,Puan,Dogru,Yanlis,Bos,Sure,Dakika,Saniye,Odak Kaybı,IP Adresi";
-            
-            // Sütun başlıklarını ekle (sorular için)
-            if(filtered.length > 0 && filtered[0].allAnswers) {
-                for(let i = 1; i <= filtered[0].allAnswers.length; i++) {
-                    csv += `,Soru ${i}`;
-                }
-            }
-            csv += "\n";
-            
-            // Verileri ekle
-            filtered.forEach(s => {
+            // Detaylı Excel export
+            const data = filtered.map(s => {
                 const timeSpent = s.timeSpent || 0;
                 const minutes = Math.floor(timeSpent / 60);
                 const seconds = timeSpent % 60;
                 
-                csv += `"${s.name}",${s.number},${s.className},${s.examCode},${s.score},${s.correct},${s.incorrect},${s.empty},${timeSpent},${minutes},${seconds},${s.focusLossCount || 0},"${s.ipAddress || ''}"`;
+                let dateTime = "Bilinmiyor";
+                if (s.timestamp && s.timestamp.toDate) {
+                    const date = s.timestamp.toDate();
+                    dateTime = `${date.toLocaleDateString('tr-TR')} ${date.toLocaleTimeString('tr-TR')}`;
+                }
                 
-                // Cevapları ekle
-                if(s.allAnswers) {
-                    s.allAnswers.forEach(answer => {
-                        csv += `,"${answer || ''}"`;
+                const result = {
+                    'Ad Soyad': s.name || '',
+                    'Numara': s.number || '',
+                    'Sınıf': s.className || '',
+                    'Sınav Kodu': s.examCode || '',
+                    'Puan': s.score || 0,
+                    'Doğru Sayısı': s.correct || 0,
+                    'Yanlış Sayısı': s.incorrect || 0,
+                    'Boş Sayısı': s.empty || 0,
+                    'Toplam Süre (saniye)': timeSpent,
+                    'Dakika': minutes,
+                    'Saniye': seconds,
+                    'Odak Kaybı': s.focusLossCount || 0,
+                    'IP Adresi': s.ipAddress || '',
+                    'Tarih/Saat': dateTime
+                };
+                
+                // Soru cevaplarını ekle
+                if(s.allAnswers && s.allAnswers.length > 0) {
+                    s.allAnswers.forEach((answer, index) => {
+                        result[`Soru ${index + 1}`] = answer || '';
                     });
                 }
                 
-                csv += "\n";
+                return result;
             });
             
-            const link = document.createElement("a");
-            link.href = "data:text/csv;charset=utf-8," + encodeURIComponent(csv);
-            link.download = "detayli_sinav_sonuclari.csv";
-            link.click();
+            const ws = XLSX.utils.json_to_sheet(data);
+            const wb = XLSX.utils.book_new();
+            XLSX.utils.book_append_sheet(wb, ws, "Detaylı Sonuçlar");
+            
+            // Excel dosyasını indir
+            XLSX.writeFile(wb, "detayli_sinav_sonuclari.xlsx");
         }
 
         // --- GELİŞMİŞ SINAVLARIM SEKMESİ ---
