@@ -241,6 +241,42 @@ function updateExamInfoArea(code) {
     area.className = "bg-green-50 border border-green-200 p-3 rounded-lg text-sm text-green-800";
 }
 
+// Yeni: Sınıfa göre öğrenci seçme listesini güncelleyen fonksiyon
+function updateStudentSelect(filteredStudents) {
+    const startBtn = document.getElementById('startQuizButton');
+    const studentSelect = document.getElementById('studentNumberInput');
+
+    // Numaraya göre sırala, numara yoksa isme göre
+    filteredStudents.sort((a, b) => {
+        const numA = parseInt(a.number, 10);
+        const numB = parseInt(b.number, 10);
+        if (!isNaN(numA) && !isNaN(numB)) return numA - numB;
+        return a.name.localeCompare(b.name, 'tr', { numeric: true, sensitivity: 'base' });
+    });
+
+    const studentOptions = filteredStudents.map(s => 
+        `<option value="${s.number}">${s.number} - ${s.name}</option>`
+    ).join('');
+
+    studentSelect.innerHTML = `<option value="">Lütfen listeden kendinizi seçin...</option>${studentOptions}`;
+    studentSelect.disabled = (filteredStudents.length === 0);
+    startBtn.disabled = true;
+
+    studentSelect.onchange = (e) => {
+        const selectedStudent = filteredStudents.find(s => s.number === e.target.value);
+        if (selectedStudent) {
+            document.getElementById('studentNameInput').value = selectedStudent.name;
+            document.getElementById('studentClassInput').value = selectedStudent.className;
+            startBtn.disabled = false;
+        } else {
+            document.getElementById('studentNameInput').value = '';
+            document.getElementById('studentClassInput').value = '';
+            startBtn.disabled = true;
+        }
+    };
+}
+
+
 async function handleCodeEntry() {
     const code = document.getElementById('examCodeInput').value.trim().toUpperCase();
     const loginFields = document.getElementById('studentLoginFields');
@@ -255,27 +291,38 @@ async function handleCodeEntry() {
     if (await fetchExamData(code)) {
         updateExamInfoArea(code);
         if (studentList.length > 0) {
-            const options = studentList.map(s => `<option value="${s.number}">${s.className} - ${s.name}</option>`).join('');
+            // Sınıf Seçimi Entegrasyonu
+            const uniqueClasses = [...new Set(studentList.map(s => s.className))].sort((a, b) => a.localeCompare(b, 'tr', { numeric: true }));
+            const classOptions = uniqueClasses.map(c => `<option value="${c}">${c}</option>`).join('');
+
             loginFields.innerHTML = `
-                <select id="studentNumberInput" class="w-full p-3 border rounded-lg">
-                    <option value="">Lütfen listeden kendinizi seçin...</option>
-                    ${options}
+                <select id="classInput" class="w-full p-3 border rounded-lg">
+                    <option value="">Lütfen listeden sınıfınızı seçin...</option>
+                    ${classOptions}
+                </select>
+                <select id="studentNumberInput" class="w-full p-3 border rounded-lg" disabled>
+                    <option value="">Önce sınıfınızı seçin...</option>
                 </select>
                 <input id="studentNameInput" type="hidden">
                 <input id="studentClassInput" type="hidden">
             `;
             startBtn.disabled = true;
-            document.getElementById('studentNumberInput').onchange = (e) => {
-                const selectedStudent = studentList.find(s => s.number === e.target.value);
-                if (selectedStudent) {
-                    document.getElementById('studentNameInput').value = selectedStudent.name;
-                    document.getElementById('studentClassInput').value = selectedStudent.className;
-                    startBtn.disabled = false;
+
+            const classSelectElement = document.getElementById('classInput');
+            classSelectElement.onchange = () => {
+                const selectedClass = classSelectElement.value;
+                if (selectedClass) {
+                    const filteredStudents = studentList.filter(s => s.className === selectedClass);
+                    updateStudentSelect(filteredStudents);
                 } else {
+                    document.getElementById('studentNumberInput').innerHTML = '<option value="">Önce sınıfınızı seçin...</option>';
+                    document.getElementById('studentNumberInput').disabled = true;
                     startBtn.disabled = true;
                 }
             };
+            
         } else {
+            // Liste Yoksa Manuel Giriş Alanı
             loginFields.innerHTML = `
                 <input id="studentNumberInput" type="text" placeholder="Okul Numarası" class="w-full p-3 border rounded-lg">
                 <input id="studentClassInput" type="text" placeholder="Sınıfı (Örn: 9A)" class="w-full p-3 border rounded-lg uppercase">
@@ -681,7 +728,8 @@ function showDashboard() {
                             <th class="p-3 text-left font-bold text-gray-600">D/Y/B</th>
                             <th class="p-3 text-left font-bold text-gray-600">Süre (dk)</th>
                             <th class="p-3 text-left font-bold text-gray-600">Ayrılma (Kez)</th>
-                            <th class="p-3 text-left font-bold text-gray-600">IP Adresi</th> <th class="p-3 text-left font-bold text-gray-600">Tarih</th>
+                            <th class="p-3 text-left font-bold text-gray-600">IP Adresi</th>
+                            <th class="p-3 text-left font-bold text-gray-600">Tarih</th>
                             <th class="p-3 text-left font-bold text-gray-600">İşlem</th>
                         </tr>
                     </thead>
@@ -897,6 +945,11 @@ function showDashboard() {
                     students.push({ number: String(number), className: String(className).toUpperCase(), name: String(name) });
                 } else { errorCount++; }
             } else { errorCount++; }
+            
+            // Okul No ve Sınıf alanlarını otomatik olarak Büyük harfe çevir
+            if (students.length > 0 && students[students.length - 1].className) {
+                students[students.length - 1].className = students[students.length - 1].className.toUpperCase();
+            }
         }
         if (students.length === 0) return alert(`Hata: Girilen veriden geçerli öğrenci bilgisi çıkarılamadı. Kontrol edin. (Başarısız: ${errorCount} satır)`);
 
@@ -1019,7 +1072,8 @@ function setupResultsTable() {
                     <td class="p-3 text-xs">${s.correct}D / ${s.incorrect}Y / ${s.empty}B</td>
                     <td class="p-3 text-xs text-gray-500">${mins} dk</td> 
                     <td class="p-3 text-xs font-bold ${s.focusLossCount>0 ? 'text-red-600 bg-red-50 rounded-md p-1' : 'text-green-600'}">${s.focusLossCount || 0}</td>
-                    <td class="p-3 text-xs font-mono bg-gray-50 rounded">${s.ipAddress || '-'}</td> <td class="p-3 text-xs text-gray-500">${date}</td>
+                    <td class="p-3 text-xs font-mono bg-gray-50 rounded">${s.ipAddress || '-'}</td>
+                    <td class="p-3 text-xs text-gray-500">${date}</td>
                     <td class="p-3 flex gap-2">
                         <button onclick="showDetails('${s.id}')" class="text-green-600 text-xs hover:underline font-bold">Cevap Detayı</button> 
                         <button onclick="showGraph('${s.number}','${s.name}')" class="text-blue-600 text-xs hover:underline font-bold">Grafik</button>
