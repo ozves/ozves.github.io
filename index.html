@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Sınav Sistemi V16 (Tam Kontrol)</title>
+    <title>Sınav Sistemi V17 (Hatasız Navigasyon)</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800&display=swap" rel="stylesheet">
@@ -78,7 +78,6 @@
         let allSubmissions = [];
         let currentFilteredList = []; 
 
-        // --- BAŞLATMA ---
         async function initializeFirebase() {
             try {
                 const app = initializeApp(firebaseConfig);
@@ -117,7 +116,6 @@
             showLoginForm();
         }
 
-        // --- GİRİŞ EKRANI ---
         function showLoginForm() {
             document.getElementById('loginHeader').innerHTML = '<h1 class="text-2xl font-extrabold">Öğrenci Girişi</h1>';
             document.getElementById('mainContentArea').innerHTML = `
@@ -166,7 +164,6 @@
                 const displayTeacher = conf.teacher_name || systemPreparerName;
                 const customName = conf.customName || code;
                 
-                // YENİ: Açıklama alanı varsa göster
                 const descHtml = conf.exam_description ? `<div class="bg-yellow-50 text-yellow-800 p-2 rounded text-xs mb-2 border border-yellow-200 italic">Note: ${conf.exam_description}</div>` : '';
 
                 infoArea.innerHTML = `
@@ -219,7 +216,6 @@
             } catch(e) { alert(e.message); }
         }
 
-        // --- SINAV GİRİŞ & OTURUM ---
         async function handleStudentLogin() {
             const code = document.getElementById('examCodeInput').value.toUpperCase();
             let name, number, className;
@@ -241,14 +237,20 @@
             studentData = { name, number, className, examCode: code };
             const studentKey = `${code}_${number}`;
 
+            // MEVCUT ÖZELLİK: DAHA ÖNCE GİRDİ Mİ?
             const subQ = query(collection(db, "quiz_submissions"), where("studentKey", "==", studentKey));
             const subSnap = await getDocs(subQ);
-            if(!subSnap.empty) return showModal("Uyarı", "Sınav zaten tamamlandı.");
+            if(!subSnap.empty) return showModal("Uyarı", "Bu sınavı daha önce tamamladınız.");
 
+            // MEVCUT ÖZELLİK: KALDIĞI YERDEN DEVAM
             const sesQ = query(collection(db, "active_sessions"), where("studentKey", "==", studentKey));
             const sesSnap = await getDocs(sesQ);
-            if(!sesSnap.empty) restoreSession({id: sesSnap.docs[0].id, ...sesSnap.docs[0].data()});
-            else startNewSession(number);
+            if(!sesSnap.empty) {
+                showModal("Bilgi", "Yarım bıraktığınız oturum bulundu. Kaldığınız yerden devam ediyorsunuz.");
+                restoreSession({id: sesSnap.docs[0].id, ...sesSnap.docs[0].data()});
+            } else {
+                startNewSession(number);
+            }
             
             startQuizUI();
         }
@@ -273,6 +275,7 @@
             currentSessionDocId = s.id; examendTimeStamp = Date.now() + (s.timeLeft * 1000);
         }
 
+        // --- SINAV UI VE BUTON DÜZELTMESİ ---
         function startQuizUI() {
             document.getElementById('app').className = 'app-card max-w-4xl w-full';
             document.getElementById('loginHeader').innerHTML = `<div class="flex justify-between px-4 text-sm"><span>${studentData.name}</span><span>${studentData.examCode}</span></div>`;
@@ -284,14 +287,29 @@
                 <div id="qArea" class="min-h-[300px]"></div>
                 <div id="warnArea" class="hidden mt-2 text-center text-red-600 font-bold text-sm bg-red-50 p-2 rounded"></div>
                 <div class="flex justify-between mt-6">
-                    <button id="prevBtn" class="button bg-gray-500 text-white px-4 py-2 rounded" disabled>Önceki</button>
+                    <button id="prevBtn" class="button bg-gray-500 text-white px-4 py-2 rounded disabled:opacity-50">Önceki</button>
                     <button id="nextBtn" class="button bg-indigo-600 text-white px-6 py-2 rounded font-bold">Sonraki</button>
                 </div>
             `;
             renderQuestion(currentQuestionIndex); startTimer(); startAutoSave();
+            
             window.onblur = () => { if(!isTeacherMode) { focusLossCount++; document.getElementById('warnArea').innerText=`⚠️ ${focusLossCount} Kez Odak Kaybı!`; document.getElementById('warnArea').classList.remove('hidden'); saveProgress(); }};
-            document.getElementById('prevBtn').onclick = () => { if(currentQuestionIndex>0) renderQuestion(--currentQuestionIndex); };
-            document.getElementById('nextBtn').onclick = () => { if(currentQuestionIndex < quizQuestions.length-1) renderQuestion(++currentQuestionIndex); else finishQuiz(); };
+            
+            // BUTONLARI DÜZELTİLMİŞ HALİ (GLOBAL INDEX UPDATE)
+            document.getElementById('prevBtn').onclick = () => { 
+                if(currentQuestionIndex > 0) {
+                    currentQuestionIndex--; // Önce azalt
+                    renderQuestion(currentQuestionIndex); 
+                }
+            };
+            document.getElementById('nextBtn').onclick = () => { 
+                if(currentQuestionIndex < quizQuestions.length - 1) {
+                    currentQuestionIndex++; // Önce artır
+                    renderQuestion(currentQuestionIndex); 
+                } else {
+                    finishQuiz();
+                }
+            };
         }
 
         function renderQuestion(idx) {
@@ -312,9 +330,17 @@
                 </div>
             `;
             document.querySelectorAll('input[name="opt"]').forEach(el => el.onchange = (e) => { selectedAnswers[realIdx] = e.target.value; renderQuestion(idx); saveProgress(); });
-            document.getElementById('prevBtn').disabled = idx === 0;
+            
+            // Buton durumlarını güncelle
+            document.getElementById('prevBtn').disabled = (idx === 0);
             const nBtn = document.getElementById('nextBtn');
-            if(idx === quizQuestions.length-1) { nBtn.innerText = "SINAVI BİTİR"; nBtn.className = "button bg-green-600 text-white px-6 py-2 rounded font-bold"; } else { nBtn.innerText = "Sonraki"; nBtn.className = "button bg-indigo-600 text-white px-6 py-2 rounded font-bold"; }
+            if(idx === quizQuestions.length-1) { 
+                nBtn.innerText = "SINAVI BİTİR"; 
+                nBtn.className = "button bg-green-600 text-white px-6 py-2 rounded font-bold"; 
+            } else { 
+                nBtn.innerText = "Sonraki"; 
+                nBtn.className = "button bg-indigo-600 text-white px-6 py-2 rounded font-bold"; 
+            }
         }
 
         function startTimer() {
@@ -334,7 +360,7 @@
 
         async function finishQuiz(force=false) {
             clearInterval(timerInterval); clearInterval(autoSaveInterval); window.onblur = null;
-            if(!force && !confirm("Bitirilsin mi?")) { startTimer(); return; }
+            if(!force && !confirm("Sınavı bitirmek istiyor musunuz?")) { startTimer(); return; }
             document.getElementById('mainContentArea').innerHTML = `<div class="text-center py-10"><div class="loader"></div><p>Sonuçlar Hesaplanıyor...</p></div>`;
             
             let c=0, w=0, e=0;
@@ -402,7 +428,7 @@
             }
         }
 
-        // --- YÖNETİCİ PANELİ V16 ---
+        // --- YÖNETİCİ PANELİ ---
         function showTeacherLogin() {
             document.getElementById('mainContentArea').innerHTML = `
                 <h3 class="font-bold text-center mb-4">Yönetici Girişi</h3>
@@ -420,7 +446,7 @@
         function showDashboard() {
             document.getElementById('connectionStatus').classList.add('hidden');
             document.getElementById('app').className = 'app-card teacher-mode';
-            document.getElementById('loginHeader').innerHTML = '<div class="flex justify-between px-4"><span>Yönetim Paneli V16</span><button onclick="location.reload()" class="text-xs bg-red-500 px-2 py-1 rounded">Çıkış</button></div>';
+            document.getElementById('loginHeader').innerHTML = '<div class="flex justify-between px-4"><span>Yönetim Paneli V17</span><button onclick="location.reload()" class="text-xs bg-red-500 px-2 py-1 rounded">Çıkış</button></div>';
             document.getElementById('mainContentArea').innerHTML = `
                 <div class="flex overflow-x-auto gap-2 mb-4 border-b pb-2">
                     <button onclick="switchTab('results')" class="tab-btn bg-indigo-600 text-white px-4 py-2 rounded text-sm font-bold">📊 Sonuçlar</button>
@@ -437,7 +463,6 @@
             loadResultsTab();
         }
 
-        // --- 1. GÜNCELLEME: TABLODA IP VE ODAK SÜTUNLARI EKLENDİ ---
         function loadResultsTab() {
             const div = document.getElementById('tab-content');
             div.innerHTML = `
@@ -467,7 +492,9 @@
                                 <th class="p-2 text-left">Puan</th>
                                 <th class="p-2 text-left">D/Y/B</th>
                                 <th class="p-2 text-left">Süre</th>
-                                <th class="p-2 text-left">Odak</th> <th class="p-2 text-left">IP Adresi</th> <th class="p-2 text-left">İşlem</th>
+                                <th class="p-2 text-left">Odak</th>
+                                <th class="p-2 text-left">IP Adresi</th>
+                                <th class="p-2 text-left">İşlem</th>
                             </tr>
                         </thead>
                         <tbody id="resBody" class="divide-y bg-white"></tbody>
@@ -599,7 +626,6 @@
         window.showListDetail = async(c) => { const s=await getDoc(doc(db,"student_lists",c)); const l=s.exists()?s.data().students:[]; let h=`<h3>${c} Listesi</h3><div class="max-h-60 overflow-auto">`; l.sort((a,b)=>a.className.localeCompare(b.className)).forEach(x=>h+=`<div>${x.className} - ${x.number} - ${x.name}</div>`); showModal("Liste", h+"</div>", true); }
         window.showQuestionDetail = async(c) => { const s=await getDoc(doc(db,"questions_pool",c)); const l=s.exists()?s.data().questions_list:[]; let h=`<h3>${c} Sorular</h3><div class="max-h-60 overflow-auto space-y-2">`; l.forEach((q,i)=>h+=`<div class="border p-1"><p class="font-bold text-xs">Soru ${i+1} (${q.answer})</p><p class="text-xs">${q.question}</p></div>`); showModal("Sorular", h+"</div>", true); }
 
-        // --- 2. GÜNCELLEME: AÇIKLAMA ALANI EKLENDİ ---
         function loadCreateTab() {
             document.getElementById('tab-content').innerHTML = `
                 <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -627,7 +653,7 @@
                 customName:document.getElementById('sName').value,
                 time_limit:(parseInt(document.getElementById('sTime').value)||10)*60,
                 teacher_name:document.getElementById('sTeach').value,
-                exam_description:document.getElementById('sDesc').value // Yeni Alan
+                exam_description:document.getElementById('sDesc').value 
             },{merge:true}); 
             alert("Ayarlar Kaydedildi"); 
         }
