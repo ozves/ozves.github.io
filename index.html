@@ -61,7 +61,7 @@ const firebaseConfig = {
 let db, auth;
 let isAuthReady = false, isDbConnected = false;
 
-let adminMasterCode = "123456";
+let adminMasterCode = null; // YENİ HALİ: Varsayılan şifre yok
 let systemPreparerName = "Sistem Yöneticisi";
 
 let currentExamConfig = {
@@ -138,15 +138,21 @@ async function initializeFirebase() {
 
 async function checkConnectivity() {
     const statusDiv = document.getElementById('connectionStatus');
-    try {
-        const adminSnap = await getDoc(doc(db, "exam_settings", "admin_config"));
-        if (adminSnap.exists()) {
-            const data = adminSnap.data();
-            adminMasterCode = data.master_code || "123456";
-            systemPreparerName = data.preparer_name || "Sistem Yöneticisi";
-        }
-
-        isDbConnected = true;
+   // checkConnectivity fonksiyonu içinde...
+try {
+    const adminSnap = await getDoc(doc(db, "exam_settings", "admin_config"));
+    if (adminSnap.exists()) {
+        const data = adminSnap.data();
+        // "|| 123456" kısmını kaldırdık. Veri yoksa şifre null kalır.
+        adminMasterCode = data.master_code; 
+        systemPreparerName = data.preparer_name || "Sistem Yöneticisi";
+    }
+    // ...
+} catch(e) {
+    // Hata durumunda adminMasterCode NULL kalır, böylece kimse giremez.
+    isDbConnected = false;
+    // ...
+}
         statusDiv.innerHTML = "🟢 Veritabanı Bağlı (Canlı Mod)";
         statusDiv.className = "mb-4 text-xs font-bold text-center p-2 rounded border bg-green-100 text-green-800 border-green-300";
     } catch(e) {
@@ -626,22 +632,16 @@ async function showResult(data) {
 
 // --- YÖNETİM PANELİ (Çoklu Sınav Yönetimi - V11 ile aynı) ---
 function showTeacherLogin() {
-    document.getElementById('mainContentArea').innerHTML = `
-        <div class="space-y-4">
-            <h3 class="text-center font-bold">Yönetici Girişi</h3>
-            <div class="text-center text-xs mb-2 ${isDbConnected ? 'text-green-600':'text-red-600 font-bold'}">
-                ${isDbConnected ? 'Veritabanı Aktif' : 'Veritabanı Bağlı Değil!'}
-            </div>
-            <input id="pass" type="password" placeholder="Yönetici Şifresi" class="w-full p-3 border rounded">
-            <button id="login" class="button bg-red-600 text-white w-full py-3 rounded">Giriş</button>
-            <button onclick="location.reload()" class="button bg-gray-200 w-full py-2 rounded">Geri</button>
-        </div>
-    `;
-    document.getElementById('login').onclick = () => {
-        if (document.getElementById('pass').value === adminMasterCode) {
-            isTeacherMode = true;
-            showDashboard();
-        } else alert("Hatalı şifre!");
+   document.getElementById('login').onclick = () => {
+    if (!adminMasterCode) {
+        alert("Yönetici şifresi veritabanından yüklenemedi. Bağlantınızı kontrol edin.");
+        return;
+    }
+    if (document.getElementById('pass').value === adminMasterCode) {
+        isTeacherMode = true;
+        showDashboard();
+    } else {
+        alert("Hatalı şifre!");
     }
 }
 
