@@ -1163,37 +1163,57 @@ dropArea.addEventListener("drop", async (e) => {
 
 
             // --- LİSTE YÜKLEME (Geliştirilmiş) ---
-            document.getElementById('btnUploadList').onclick = async () => {
-                const code = sanitizeExamCode(document.getElementById('uploadListCode').value);
-                const txt = document.getElementById('listInput').innerText || document.getElementById('listInput').textContent;
-                
-                if(!code || !txt.trim()) return alert("Eksik bilgi");
-                
-                const students = [];
-                const lines = txt.split('\n').filter(x => x.trim());
-                
-                lines.forEach(line => {
-                    // Hem tab hem de boşluk ile ayrılmış verileri destekle
-                    const parts = line.split('\t').length > 1 ? line.split('\t') : line.split(/\s{2,}/);
-                    if(parts.length >= 3) {
-                        students.push({ 
-                            number: parts[0].trim(), 
-                            className: sanitizeInput(parts[1].trim()), 
-                            name: sanitizeInput(parts[2].trim())
-                        });
-                    }
-                });
-                
-                if(students.length === 0) return alert("Liste formatı hatalı. Excel'den kopyaladığınızdan emin olun.");
-                
-                await setDoc(doc(db, "student_lists", code), { students });
-                alert(`${students.length} öğrenci listeye eklendi.`);
-                document.getElementById('listInput').innerText = '';
-            };
-            
-            // Initial Load
-            loadResults();
+           document.getElementById('btnUploadList').onclick = async () => {
+    const rawText = document.getElementById('listInput').innerText.trim();
+
+    if (!rawText) {
+        alert("Lütfen liste alanına öğrenci bilgilerini girin.");
+        return;
+    }
+
+    const lines = rawText.split("\n");
+    const students = [];
+
+    for (let line of lines) {
+        line = line.trim();
+        if (!line) continue; // Boş satırları atla
+
+        // 2+ boşluklara göre ayır
+        const parts = line.split(/\s{2,}/).map(x => x.trim());
+
+        if (parts.length < 3) {
+            alert("Liste formatı hatalı. Her satır: Numara    Sınıf    Ad Soyad şeklinde olmalı.");
+            return;
         }
+
+        const [number, className, name] = parts;
+
+        // Eğer herhangi biri boş ise satırı atla
+        if (!number || !className || !name) {
+            continue; // HATA VERME → SATIRI GEÇ
+        }
+
+        students.push({
+            number: number,
+            className: className,
+            name: name
+        });
+    }
+
+    if (students.length === 0) {
+        alert("Liste boş veya tüm satırlar eksik bilgi içeriyor.");
+        return;
+    }
+
+    // Firestore'a kaydet
+    const colRef = collection(db, "teacher", currentTeacherId, "students");
+
+    for (const s of students) {
+        await addDoc(colRef, s);
+    }
+
+    alert("Öğrenci listesi başarıyla kaydedildi.");
+};
 
         // --- DASHBOARD YARDIMCILARI ---
         function loadResults() {
