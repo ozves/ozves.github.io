@@ -760,62 +760,67 @@
 
         // --- GELİŞMİŞ SONUÇ EKRANI (Grafik ve sıralama eklendi) ---
        // --- GELİŞMİŞ SONUÇ EKRANI (Düzeltilmiş) ---
+// --- GELİŞMİŞ SONUÇ EKRANI (TAM DÜZELTMİŞ) ---
 async function showResultScreen(data) {
-    // Öğrencinin tüm sınav sonuçlarını al (DÜZELTİLDİ)
+    // Öğrencinin TÜM sınavlardaki sonuçlarını al (FARKLI SINAV KODLARI İLE)
     let allStudentResults = [];
     try {
         const q = query(collection(db, "quiz_submissions"), 
-                      where("number", "==", studentData.number),
-                      orderBy("timestamp", "asc"));
+                      where("number", "==", studentData.number));
         const snap = await getDocs(q);
         allStudentResults = snap.docs.map(d => {
             const resultData = d.data();
             return {
                 id: d.id,
-                examCode: resultData.examCode,
-                score: parseFloat(resultData.score),
+                examCode: resultData.examCode || 'Bilinmeyen',
+                score: parseFloat(resultData.score) || 0,
                 timestamp: resultData.timestamp
             };
-        }).filter(r => r.examCode); // examCode'si olanları filtrele
+        }).filter(r => r.examCode && r.examCode !== 'Bilinmeyen');
+        
+        console.log("Öğrencinin tüm sınav sonuçları:", allStudentResults);
     } catch(e) {
         console.error("Geçmiş sınav sonuçları yüklenemedi:", e);
     }
     
-    // Mevcut sınavdaki sıralamayı hesapla (DÜZELTİLDİ)
-   // Mevcut sınavdaki sıralamayı hesapla (GÜNCELLENDİ)
-let rankInfo = "Hesaplanıyor...";
-try {
-    const currentExamResults = await getDocs(
-        query(collection(db, "quiz_submissions"), 
-              where("examCode", "==", studentData.examCode))
-    );
-    
-    const allResults = currentExamResults.docs.map(d => {
-        const data = d.data();
-        return {
-            number: data.number,
-            examCode: data.examCode,
-            score: parseFloat(data.score) || 0
-        };
-    });
-    
-    // Puanına göre sırala (yüksek puan önce)
-    allResults.sort((a, b) => b.score - a.score);
-    
-    const currentStudentIndex = allResults.findIndex(r => 
-        r.number === studentData.number && r.examCode === studentData.examCode
-    );
-    
-    if (currentStudentIndex !== -1) {
-        rankInfo = `${currentStudentIndex + 1}. sıra (${allResults.length} kişi arasında)`;
-    } else {
-        // Henüz listeye eklenmemişse
-        rankInfo = `${allResults.length + 1}. sıra (${allResults.length + 1} kişi arasında)`;
+    // Mevcut sınavdaki sıralamayı hesapla
+    let rankInfo = "Hesaplanıyor...";
+    try {
+        const currentExamResults = await getDocs(
+            query(collection(db, "quiz_submissions"), 
+                  where("examCode", "==", studentData.examCode))
+        );
+        
+        const allResults = currentExamResults.docs.map(d => {
+            const resultData = d.data();
+            return {
+                number: resultData.number,
+                examCode: resultData.examCode,
+                score: parseFloat(resultData.score) || 0,
+                name: resultData.name
+            };
+        });
+        
+        // Puanına göre sırala (yüksek puan önce)
+        allResults.sort((a, b) => b.score - a.score);
+        
+        const currentStudentIndex = allResults.findIndex(r => 
+            r.number === studentData.number && r.examCode === studentData.examCode
+        );
+        
+        if (currentStudentIndex !== -1) {
+            rankInfo = `${currentStudentIndex + 1}. sıra (${allResults.length} kişi arasında)`;
+        } else {
+            rankInfo = `${allResults.length + 1}. sıra (${allResults.length + 1} kişi arasında)`;
+        }
+        
+        console.log("Sıralama bilgisi:", rankInfo);
+        console.log("Toplam katılımcı:", allResults.length);
+    } catch(e) {
+        console.error("Sıralama hesaplanamadı:", e);
+        rankInfo = "Hesaplanamadı";
     }
-} catch(e) {
-    console.error("Sıralama hesaplanamadı:", e);
-    rankInfo = "Hesaplanamadı";
-}
+
     document.getElementById('app').className = 'app-card max-w-4xl';
     document.getElementById('loginHeader').innerHTML = '<h1 class="text-2xl font-bold">Sınav Tamamlandı</h1>';
     
@@ -873,20 +878,25 @@ try {
         </div>
     `;
     
-    // Grafik oluştur (DÜZELTİLDİ)
-    if (allStudentResults.length > 0) {
-        setTimeout(() => {
-            const ctx = document.getElementById('progressChart').getContext('2d');
+    // GRAFİK OLUŞTURMA (TAM DÜZELTMİŞ)
+    setTimeout(() => {
+        const ctx = document.getElementById('progressChart').getContext('2d');
+        
+        if (allStudentResults.length > 0) {
+            // Tüm sınavları tarihe göre sırala
+            allStudentResults.sort((a, b) => {
+                if (a.timestamp && b.timestamp) {
+                    return a.timestamp.toDate() - b.timestamp.toDate();
+                }
+                return 0;
+            });
             
             // Sınav kodları ve puanları ayır
-            const labels = allStudentResults.map(r => r.examCode || 'Bilinmeyen');
-            const scores = allStudentResults.map(r => r.score || 0);
+            const labels = allStudentResults.map(r => r.examCode);
+            const scores = allStudentResults.map(r => r.score);
             
-            // Mevcut sınavı da ekle
-            if (!allStudentResults.some(r => r.examCode === data.examCode)) {
-                labels.push(data.examCode);
-                scores.push(parseFloat(data.score));
-            }
+            console.log("Grafik verileri - Labels:", labels);
+            console.log("Grafik verileri - Scores:", scores);
             
             new Chart(ctx, {
                 type: 'line',
@@ -920,12 +930,17 @@ try {
                             },
                             grid: {
                                 color: 'rgba(0,0,0,0.1)'
+                            },
+                            ticks: {
+                                callback: function(value) {
+                                    return value + ' puan';
+                                }
                             }
                         },
                         x: {
                             title: {
                                 display: true,
-                                text: 'Sınavlar'
+                                text: 'Sınav Kodları'
                             },
                             grid: {
                                 display: false
@@ -939,16 +954,18 @@ try {
                         tooltip: {
                             backgroundColor: 'rgba(0,0,0,0.8)',
                             titleColor: '#ffffff',
-                            bodyColor: '#ffffff'
+                            bodyColor: '#ffffff',
+                            callbacks: {
+                                label: function(context) {
+                                    return `Puan: ${context.parsed.y}`;
+                                }
+                            }
                         }
                     }
                 }
             });
-        }, 100);
-    } else {
-        // Hiç veri yoksa mevcut sınavı göster
-        setTimeout(() => {
-            const ctx = document.getElementById('progressChart').getContext('2d');
+        } else {
+            // Hiç veri yoksa mevcut sınavı göster
             new Chart(ctx, {
                 type: 'line',
                 data: {
@@ -993,8 +1010,8 @@ try {
                     }
                 }
             });
-        }, 100);
-    }
+        }
+    }, 500);
     
     document.getElementById('exitExamBtn').onclick = resetApp;
 }
