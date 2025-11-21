@@ -1110,6 +1110,59 @@ async function showResultScreen(data) {
                     alert("Şifre güncellendi.");
                 }
             };
+// --- EXCEL SÜRÜKLE-BIRAK YÜKLEME ---
+// listInput = içerik alanı
+const dropArea = document.getElementById("listInput");
+
+// Varsayılan tarayıcı davranışını engelle
+["dragenter", "dragover", "dragleave", "drop"].forEach(evt => {
+    dropArea.addEventListener(evt, e => e.preventDefault());
+});
+
+// Sürükleme sırasında görsel efekt
+["dragenter", "dragover"].forEach(evt => {
+    dropArea.addEventListener(evt, () => {
+        dropArea.style.borderColor = "#4f46e5";
+        dropArea.style.background = "#eef2ff";
+    });
+});
+
+// Sürükleme çıkınca eski haline dön
+["dragleave", "drop"].forEach(evt => {
+    dropArea.addEventListener(evt, () => {
+        dropArea.style.borderColor = "#cbd5e0";
+        dropArea.style.background = "#f9fafb";
+    });
+});
+
+// Dosya bırakılınca Excel'i oku
+dropArea.addEventListener("drop", async (e) => {
+    const file = e.dataTransfer.files[0];
+    if (!file) return;
+
+    if (!file.name.endsWith(".xlsx")) {
+        alert("Lütfen .xlsx formatında bir Excel dosyası yükleyin.");
+        return;
+    }
+
+    const reader = new FileReader();
+    reader.onload = (event) => {
+        const data = new Uint8Array(event.target.result);
+        const workbook = XLSX.read(data, { type: "array" });
+        const sheet = workbook.Sheets[workbook.SheetNames[0]];
+        const json = XLSX.utils.sheet_to_json(sheet, { header: 1 });
+
+        // Excel → listInput alanına metin olarak yaz
+        const lines = json
+            .filter(r => r.length >= 3)
+            .map(r => `${r[0]}    ${r[1]}    ${r[2]}`)
+            .join("\n");
+
+        document.getElementById("listInput").innerText = lines;
+    };
+
+    reader.readAsArrayBuffer(file);
+});
 
             // --- LİSTE YÜKLEME (Geliştirilmiş) ---
             document.getElementById('btnUploadList').onclick = async () => {
