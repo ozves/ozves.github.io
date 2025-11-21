@@ -1528,7 +1528,7 @@ async function showResultScreen(data) {
             }, 100);
         }
         
-       // --- TEK TEK DÜZENLEME (SORU & ÖĞRENCİ) - 5 ŞIKLI VERSİYON ---
+     // --- TEK TEK DÜZENLEME (SORU & ÖĞRENCİ) - 5 ŞIKLI VE DÜZELTİLMİŞ VERSİYON ---
 
         // 1. SORULARI YÖNETME PENCERESİ (Ekle/Sil/Düzenle)
         window.showExamQuestions = async (code) => {
@@ -1702,10 +1702,118 @@ async function showResultScreen(data) {
             document.querySelector('.bg-orange-50').scrollIntoView({behavior: 'smooth'});
         }
 
-        // Form Temizleme
+        // Form Temizleme (DÜZELTİLEN KISIM BURASI)
         window.clearQuestionForm = () => {
-            document.getElementById('qText').value =
-        // Sınav Silme Fonksiyonu
+            document.getElementById('qText').value = "";
+            document.getElementById('optA').value = "";
+            document.getElementById('optB').value = "";
+            document.getElementById('optC').value = "";
+            document.getElementById('optD').value = "";
+            document.getElementById('optE').value = "";
+            document.getElementById('qImg').value = "";
+            document.getElementById('qAns').value = "";
+            document.getElementById('editIndex').value = "-1";
+            
+            document.getElementById('formTitle').innerText = "Yeni Soru Ekle";
+            const btn = document.getElementById('saveBtn');
+            btn.innerText = "Soruyu Kaydet";
+            if(btn.classList.contains('bg-blue-600')) {
+                btn.classList.replace('bg-blue-600', 'bg-orange-600');
+                btn.classList.replace('hover:bg-blue-700', 'hover:bg-orange-700');
+            }
+        }
+
+        // Soru Silme
+        window.deleteQuestion = async (code, index) => {
+            if(!confirm("Bu soruyu silmek istediğinize emin misiniz?")) return;
+            const ref = getQuestionsRef(code);
+            const snap = await getDoc(ref);
+            let list = snap.data().questions_list;
+            list.splice(index, 1);
+            await setDoc(ref, { questions_list: list }, { merge: true });
+            window.showExamQuestions(code);
+        }
+
+        // 2. ÖĞRENCİ YÖNETME PENCERESİ (Değişiklik Yok, Aynen Korundu)
+        window.showExamStudents = async (code) => {
+            try {
+                const snap = await getDoc(doc(db, "student_lists", code));
+                const students = snap.exists() ? snap.data().students : [];
+                students.sort((a,b) => a.className.localeCompare(b.className) || a.name.localeCompare(b.name));
+
+                let content = `
+                    <div class="sticky top-0 bg-white z-20 pb-4 border-b mb-4">
+                        <div class="flex justify-between items-center mb-2">
+                            <h3 class="text-xl font-bold text-teal-700">${code} - Öğrenci Yönetimi</h3>
+                            <button onclick="document.getElementById('customModal').classList.add('hidden')" class="text-gray-500 font-bold text-xl">&times;</button>
+                        </div>
+                        <div class="bg-teal-50 p-3 rounded border border-teal-200 text-sm shadow-inner">
+                            <h4 class="font-bold text-teal-800 mb-2">Öğrenci Ekle</h4>
+                            <div class="flex gap-2">
+                                <input id="addNum" placeholder="No" class="w-20 p-2 border rounded focus:border-teal-500 outline-none">
+                                <input id="addClass" placeholder="Sınıf" class="w-20 p-2 border rounded focus:border-teal-500 outline-none">
+                                <input id="addName" placeholder="Ad Soyad" class="flex-1 p-2 border rounded focus:border-teal-500 outline-none">
+                                <button onclick="window.addStudent('${code}')" class="bg-teal-600 text-white px-4 py-2 rounded font-bold hover:bg-teal-700 shadow">Ekle</button>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="max-h-[50vh] overflow-y-auto border rounded-lg shadow-sm">
+                        <table class="min-w-full text-sm divide-y divide-gray-200">
+                            <thead class="bg-gray-100 sticky top-0">
+                                <tr>
+                                    <th class="p-3 text-left font-bold text-gray-600">No</th>
+                                    <th class="p-3 text-left font-bold text-gray-600">Sınıf</th>
+                                    <th class="p-3 text-left font-bold text-gray-600">Ad Soyad</th>
+                                    <th class="p-3 text-right font-bold text-gray-600">İşlem</th>
+                                </tr>
+                            </thead>
+                            <tbody class="bg-white divide-y divide-gray-100">`;
+                if(students.length === 0) content += `<tr><td colspan="4" class="p-4 text-center text-gray-400">Liste boş.</td></tr>`;
+                else {
+                    students.forEach(s => {
+                        content += `
+                            <tr class="hover:bg-teal-50 transition">
+                                <td class="p-3 font-mono font-bold text-teal-700">${s.number}</td>
+                                <td class="p-3">${s.className}</td>
+                                <td class="p-3 font-medium">${s.name}</td>
+                                <td class="p-3 text-right">
+                                    <button onclick="window.deleteStudent('${code}', '${s.number}')" class="bg-red-50 text-red-600 border border-red-200 px-3 py-1 rounded text-xs font-bold hover:bg-red-600 hover:text-white transition">Sil</button>
+                                </td>
+                            </tr>`;
+                    });
+                }
+                content += `</tbody></table></div>`;
+                showCustomAlert(``, content);
+            } catch(e) { alert("Hata: " + e.message); }
+        }
+
+        window.addStudent = async (code) => {
+            const num = document.getElementById('addNum').value.trim();
+            const cls = document.getElementById('addClass').value.trim();
+            const name = document.getElementById('addName').value.trim();
+            if(!num || !cls || !name) return alert("Tüm alanları doldurun.");
+
+            const ref = doc(db, "student_lists", code);
+            const snap = await getDoc(ref);
+            let students = snap.exists() ? snap.data().students : [];
+            
+            if(students.some(s => s.number === num)) return alert("Bu numara zaten var!");
+            
+            students.push({ number: num, className: cls, name: name });
+            await setDoc(ref, { students }, { merge: true });
+            window.showExamStudents(code);
+        }
+
+        window.deleteStudent = async (code, num) => {
+            if(!confirm("Bu öğrenci silinsin mi?")) return;
+            const ref = doc(db, "student_lists", code);
+            const snap = await getDoc(ref);
+            let students = snap.data().students.filter(s => s.number !== num);
+            await setDoc(ref, { students }, { merge: true });
+            window.showExamStudents(code);
+        }
+
+        // SINAV SİLME FONKSİYONU
         window.deleteExam = async (code) => {
             if(confirm(`⚠️ DİKKAT!\n\n"${code}" kodlu sınavı silmek üzeresiniz.\n\nBuna bağlı TÜM SORULAR, ÖĞRENCİ LİSTESİ ve SINAV SONUÇLARI kalıcı olarak silinecektir.\n\nBu işlem geri alınamaz. Onaylıyor musunuz?`)) {
                 const btn = document.activeElement;
@@ -1728,7 +1836,7 @@ async function showResultScreen(data) {
                 }
             }
         }
-
+        // --- TEK TEK DÜZENLEME BİTİŞ ---
         // --- UI HELPERS ---
         function showCustomAlert(title, msg) {
             return new Promise(resolve => {
