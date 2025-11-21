@@ -761,31 +761,109 @@
         // --- GELİŞMİŞ SONUÇ EKRANI (Grafik ve sıralama eklendi) ---
        // --- GELİŞMİŞ SONUÇ EKRANI (Düzeltilmiş) ---
 // --- GELİŞMİŞ SONUÇ EKRANI (TAM DÜZELTMİŞ) ---
+// --- TÜM SINAV SONUÇLARINI GETİR (DÜZELTMİŞ) ---
 async function showResultScreen(data) {
-    // Öğrencinin TÜM sınavlardaki sonuçlarını al (FARKLI SINAV KODLARI İLE)
+    console.log("🔍 showResultScreen başladı - Öğrenci:", studentData.number);
+    
+    // Öğrencinin TÜM sınavlardaki sonuçlarını al
     let allStudentResults = [];
     try {
-        const q = query(collection(db, "quiz_submissions"), 
-                      where("number", "==", studentData.number));
+        console.log("📊 TÜM sınav sonuçları çekiliyor...");
+        
+        // TÜM sınavları getir - sadece mevcut sınavı değil!
+        const q = query(
+            collection(db, "quiz_submissions"), 
+            where("number", "==", studentData.number)
+        );
+        
         const snap = await getDocs(q);
+        console.log("✅ Tüm sınavlardan gelen sonuç sayısı:", snap.size);
+        
         allStudentResults = snap.docs.map(d => {
             const resultData = d.data();
+            console.log("📝 Bulunan sınav:", resultData.examCode, "Puan:", resultData.score);
+            
+            // Tarih formatını düzenle
+            let dateTime = "Bilinmiyor";
+            if (resultData.timestamp && resultData.timestamp.toDate) {
+                const date = resultData.timestamp.toDate();
+                dateTime = `${date.toLocaleDateString('tr-TR')}`;
+            }
+            
             return {
                 id: d.id,
                 examCode: resultData.examCode || 'Bilinmeyen',
                 score: parseFloat(resultData.score) || 0,
-                timestamp: resultData.timestamp
+                timestamp: resultData.timestamp,
+                date: dateTime,
+                name: resultData.name,
+                number: resultData.number
             };
         }).filter(r => r.examCode && r.examCode !== 'Bilinmeyen');
         
-        console.log("Öğrencinin tüm sınav sonuçları:", allStudentResults);
+        console.log("🎯 Filtrelenmiş TÜM sınavlar:", allStudentResults);
+        
     } catch(e) {
-        console.error("Geçmiş sınav sonuçları yüklenemedi:", e);
+        console.error("❌ Tüm sınav sonuçları yüklenemedi:", e);
+        
+        // Fallback: Tüm koleksiyonu çekip client-side filtrele
+        try {
+            console.log("🔄 Tüm koleksiyon çekiliyor...");
+            const allSnap = await getDocs(collection(db, "quiz_submissions"));
+            const allResults = allSnap.docs.map(d => {
+                const resultData = d.data();
+                return {
+                    id: d.id,
+                    ...resultData,
+                    score: parseFloat(resultData.score) || 0
+                };
+            });
+            
+            // Client-side filtreleme - BU ÖĞRENCİNİN TÜM SINAVLARI
+            allStudentResults = allResults
+                .filter(r => r.number === studentData.number)
+                .map(r => ({
+                    examCode: r.examCode,
+                    score: r.score,
+                    timestamp: r.timestamp,
+                    date: r.timestamp && r.timestamp.toDate ? 
+                        r.timestamp.toDate().toLocaleDateString('tr-TR') : 'Bilinmiyor'
+                }));
+                
+            console.log("✅ Client-side filtreleme sonucu:", allStudentResults);
+        } catch(error2) {
+            console.error("❌ Fallback de başarısız:", error2);
+        }
     }
+    
+    // Mevcut sınavı da listeye ekle (eğer henüz yoksa)
+    const currentExamExists = allStudentResults.some(r => r.examCode === data.examCode);
+    if (!currentExamExists) {
+        console.log("➕ Mevcut sınav listeye ekleniyor:", data.examCode);
+        
+        let currentDate = new Date().toLocaleDateString('tr-TR');
+        allStudentResults.push({
+            examCode: data.examCode,
+            score: parseFloat(data.score),
+            timestamp: serverTimestamp(),
+            date: currentDate
+        });
+    }
+    
+    // Tarihe göre sırala (en eskiden yeniye)
+    allStudentResults.sort((a, b) => {
+        if (a.timestamp && b.timestamp) {
+            return a.timestamp.toDate ? a.timestamp.toDate() - b.timestamp.toDate() : 0;
+        }
+        return 0;
+    });
+    
+    console.log("📅 Tarihe göre sıralanmış tüm sınavlar:", allStudentResults);
     
     // Mevcut sınavdaki sıralamayı hesapla
     let rankInfo = "Hesaplanıyor...";
     try {
+        console.log("🏆 Sıralama hesaplanıyor...");
         const currentExamResults = await getDocs(
             query(collection(db, "quiz_submissions"), 
                   where("examCode", "==", studentData.examCode))
@@ -801,6 +879,8 @@ async function showResultScreen(data) {
             };
         });
         
+        console.log("📊 Mevcut sınavdaki katılımcı sayısı:", allResults.length);
+        
         // Puanına göre sırala (yüksek puan önce)
         allResults.sort((a, b) => b.score - a.score);
         
@@ -810,17 +890,18 @@ async function showResultScreen(data) {
         
         if (currentStudentIndex !== -1) {
             rankInfo = `${currentStudentIndex + 1}. sıra (${allResults.length} kişi arasında)`;
+            console.log("✅ Sıralama bulundu:", rankInfo);
         } else {
             rankInfo = `${allResults.length + 1}. sıra (${allResults.length + 1} kişi arasında)`;
+            console.log("⚠️ Sıralama bulunamadı, varsayılan değer kullanılıyor");
         }
         
-        console.log("Sıralama bilgisi:", rankInfo);
-        console.log("Toplam katılımcı:", allResults.length);
     } catch(e) {
-        console.error("Sıralama hesaplanamadı:", e);
+        console.error("❌ Sıralama hesaplanamadı:", e);
         rankInfo = "Hesaplanamadı";
     }
 
+    // UI'ı oluştur
     document.getElementById('app').className = 'app-card max-w-4xl';
     document.getElementById('loginHeader').innerHTML = '<h1 class="text-2xl font-bold">Sınav Tamamlandı</h1>';
     
@@ -862,6 +943,32 @@ async function showResultScreen(data) {
                         <div class="flex justify-between"><span>Sıralama:</span> <span class="font-bold text-indigo-600">${rankInfo}</span></div>
                     </div>
                 </div>
+                
+                <!-- SINAV GEÇMİŞİ TABLOSU -->
+                <div class="bg-white p-4 rounded-lg border shadow-sm">
+                    <h3 class="font-bold text-gray-700 mb-3">Sınav Geçmişi</h3>
+                    <div class="max-h-40 overflow-y-auto">
+                        <table class="w-full text-sm">
+                            <thead class="bg-gray-50 sticky top-0">
+                                <tr>
+                                    <th class="p-2 text-left text-xs">Sınav Kodu</th>
+                                    <th class="p-2 text-left text-xs">Puan</th>
+                                    <th class="p-2 text-left text-xs">Tarih</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                ${allStudentResults.map((exam, index) => `
+                                    <tr class="${exam.examCode === data.examCode ? 'bg-indigo-50' : 'hover:bg-gray-50'} border-b">
+                                        <td class="p-2 text-xs font-medium">${exam.examCode}</td>
+                                        <td class="p-2 text-xs font-bold ${exam.score >= 50 ? 'text-green-600' : 'text-red-600'}">${exam.score}</td>
+                                        <td class="p-2 text-xs text-gray-500">${exam.date}</td>
+                                    </tr>
+                                `).join('')}
+                            </tbody>
+                        </table>
+                    </div>
+                    <p class="text-xs text-gray-500 mt-2">Toplam ${allStudentResults.length} sınav</p>
+                </div>
             </div>
             
             <div class="bg-white p-4 rounded-lg border shadow-sm">
@@ -869,7 +976,10 @@ async function showResultScreen(data) {
                 <div class="h-64">
                     <canvas id="progressChart"></canvas>
                 </div>
-                ${allStudentResults.length <= 1 ? '<p class="text-center text-gray-500 mt-4">Henüz yeterli sınav verisi yok</p>' : ''}
+                ${allStudentResults.length <= 1 ? 
+                    '<p class="text-center text-gray-500 mt-4">Henüz yeterli sınav verisi yok</p>' : 
+                    `<p class="text-center text-green-600 text-sm mt-2">${allStudentResults.length} farklı sınav gösteriliyor</p>`
+                }
             </div>
         </div>
         
@@ -878,43 +988,41 @@ async function showResultScreen(data) {
         </div>
     `;
     
-    // GRAFİK OLUŞTURMA (TAM DÜZELTMİŞ)
+    // GRAFİK OLUŞTURMA
     setTimeout(() => {
         const ctx = document.getElementById('progressChart').getContext('2d');
         
+        console.log("📈 Grafik oluşturuluyor...", allStudentResults);
+        
         if (allStudentResults.length > 0) {
-            // Tüm sınavları tarihe göre sırala
-            allStudentResults.sort((a, b) => {
-                if (a.timestamp && b.timestamp) {
-                    return a.timestamp.toDate() - b.timestamp.toDate();
-                }
-                return 0;
-            });
-            
             // Sınav kodları ve puanları ayır
             const labels = allStudentResults.map(r => r.examCode);
             const scores = allStudentResults.map(r => r.score);
             
-            console.log("Grafik verileri - Labels:", labels);
-            console.log("Grafik verileri - Scores:", scores);
+            console.log("🎯 Grafik Labels:", labels);
+            console.log("🎯 Grafik Scores:", scores);
+            
+            // Renkleri belirle - mevcut sınav farklı olsun
+            const backgroundColors = allStudentResults.map((exam, index) => 
+                exam.examCode === data.examCode ? 'rgba(79, 70, 229, 0.8)' : 'rgba(79, 70, 229, 0.4)'
+            );
+            
+            const borderColors = allStudentResults.map((exam, index) => 
+                exam.examCode === data.examCode ? '#4f46e5' : '#818cf8'
+            );
             
             new Chart(ctx, {
-                type: 'line',
+                type: 'bar', // Çubuk grafik daha iyi görünüyor
                 data: {
                     labels: labels,
                     datasets: [{
                         label: 'Puan',
                         data: scores,
-                        borderColor: '#4f46e5',
-                        backgroundColor: 'rgba(79, 70, 229, 0.1)',
-                        borderWidth: 3,
-                        pointBackgroundColor: '#4f46e5',
-                        pointBorderColor: '#ffffff',
-                        pointBorderWidth: 2,
-                        pointRadius: 6,
-                        pointHoverRadius: 8,
-                        tension: 0.3,
-                        fill: true
+                        borderColor: borderColors,
+                        backgroundColor: backgroundColors,
+                        borderWidth: 2,
+                        borderRadius: 4,
+                        borderSkipped: false,
                     }]
                 },
                 options: {
@@ -957,65 +1065,27 @@ async function showResultScreen(data) {
                             bodyColor: '#ffffff',
                             callbacks: {
                                 label: function(context) {
-                                    return `Puan: ${context.parsed.y}`;
+                                    const exam = allStudentResults[context.dataIndex];
+                                    let label = `Puan: ${context.parsed.y}`;
+                                    if (exam.examCode === data.examCode) {
+                                        label += ' (Bu Sınav)';
+                                    }
+                                    return label;
                                 }
                             }
                         }
                     }
                 }
             });
+            
+            console.log("✅ Grafik başarıyla oluşturuldu!");
         } else {
-            // Hiç veri yoksa mevcut sınavı göster
-            new Chart(ctx, {
-                type: 'line',
-                data: {
-                    labels: [data.examCode],
-                    datasets: [{
-                        label: 'Puan',
-                        data: [parseFloat(data.score)],
-                        borderColor: '#4f46e5',
-                        backgroundColor: 'rgba(79, 70, 229, 0.1)',
-                        borderWidth: 3,
-                        pointBackgroundColor: '#4f46e5',
-                        pointBorderColor: '#ffffff',
-                        pointBorderWidth: 2,
-                        pointRadius: 6,
-                        tension: 0.3,
-                        fill: true
-                    }]
-                },
-                options: {
-                    responsive: true,
-                    maintainAspectRatio: false,
-                    scales: {
-                        y: {
-                            beginAtZero: true,
-                            max: 100,
-                            title: {
-                                display: true,
-                                text: 'Puan'
-                            }
-                        },
-                        x: {
-                            title: {
-                                display: true,
-                                text: 'Sınavlar'
-                            }
-                        }
-                    },
-                    plugins: {
-                        legend: {
-                            display: false
-                        }
-                    }
-                }
-            });
+            console.log("❌ Grafik için yeterli veri yok");
         }
-    }, 500);
+    }, 1000);
     
     document.getElementById('exitExamBtn').onclick = resetApp;
 }
-
         // --- YÖNETİCİ MODÜLÜ ---
         function showTeacherLogin() {
             document.getElementById('mainContentArea').innerHTML = `
