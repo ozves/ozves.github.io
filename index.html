@@ -1365,193 +1365,277 @@ async function showResultScreen(data) {
             XLSX.writeFile(wb, "detayli_sinav_sonuclari.xlsx");
         }
 
-        // --- GELİŞMİŞ SINAVLARIM SEKMESİ ---
+       // --- GELİŞMİŞ SINAVLARIM SEKMESİ (GÜNCELLENMİŞ) ---
         async function loadMyExams() {
             const container = document.getElementById('myExamsList');
-            container.innerHTML = "Yükleniyor...";
+            // Yükleniyor animasyonu
+            container.innerHTML = `
+                <div class="col-span-1 md:col-span-2 lg:col-span-3 text-center py-10">
+                    <div class="loader mb-4"></div>
+                    <p class="font-bold text-gray-600">Sınavlar listeleniyor, lütfen bekleyin...</p>
+                </div>`;
             
-            const [configSnap, questionsSnap, listsSnap, submissionsSnap] = await Promise.all([
-                getDocs(collection(db, "exam_settings")),
-                getDocs(collection(db, "questions_pool")),
-                getDocs(collection(db, "student_lists")),
-                getDocs(collection(db, "quiz_submissions"))
-            ]);
-            
-            const exams = [];
-            const questionsData = {};
-            const studentLists = {};
-            const submissionCounts = {};
-            
-            questionsSnap.forEach(doc => {
-                questionsData[doc.id] = doc.data().questions_list?.length || 0;
-            });
-            
-            listsSnap.forEach(doc => {
-                studentLists[doc.id] = doc.data().students?.length || 0;
-            });
-            
-            submissionsSnap.forEach(doc => {
-                const data = doc.data();
-                const code = data.examCode;
-                if(!submissionCounts[code]) submissionCounts[code] = 0;
-                submissionCounts[code]++;
-            });
-            
-            configSnap.forEach(doc => {
-                if(doc.id !== 'admin_config') {
+            try {
+                // Tüm gerekli verileri paralel olarak çekiyoruz
+                const [configSnap, questionsSnap, listsSnap, submissionsSnap] = await Promise.all([
+                    getDocs(collection(db, "exam_settings")),
+                    getDocs(collection(db, "questions_pool")),
+                    getDocs(collection(db, "student_lists")),
+                    getDocs(collection(db, "quiz_submissions"))
+                ]);
+                
+                const exams = [];
+                const questionsData = {};
+                const studentLists = {};
+                const submissionCounts = {};
+                
+                // Veri haritalarını oluştur
+                questionsSnap.forEach(doc => {
+                    questionsData[doc.id] = doc.data().questions_list?.length || 0;
+                });
+                
+                listsSnap.forEach(doc => {
+                    studentLists[doc.id] = doc.data().students?.length || 0;
+                });
+                
+                submissionsSnap.forEach(doc => {
                     const data = doc.data();
-                    exams.push({
-                        code: doc.id,
-                        teacher_name: data.teacher_name || systemPreparerName,
-                        time_limit: data.time_limit || 600,
-                        exam_description: data.exam_description || "",
-                        custom_name: data.custom_name || "",
-                        question_count: questionsData[doc.id] || 0,
-                        student_count: studentLists[doc.id] || 0,
-                        submission_count: submissionCounts[doc.id] || 0
-                    });
+                    const code = data.examCode;
+                    if (code) {
+                        if(!submissionCounts[code]) submissionCounts[code] = 0;
+                        submissionCounts[code]++;
+                    }
+                });
+                
+                // Ana sınav listesini derle
+                configSnap.forEach(doc => {
+                    if(doc.id !== 'admin_config') {
+                        const data = doc.data();
+                        exams.push({
+                            code: doc.id,
+                            teacher_name: data.teacher_name || systemPreparerName,
+                            time_limit: data.time_limit || 600,
+                            exam_description: data.exam_description || "",
+                            custom_name: data.custom_name || "",
+                            question_count: questionsData[doc.id] || 0,
+                            student_count: studentLists[doc.id] || 0,
+                            submission_count: submissionCounts[doc.id] || 0
+                        });
+                    }
+                });
+                
+                if(exams.length === 0) {
+                    container.innerHTML = '<div class="col-span-full text-center text-gray-500 py-10 font-bold">Henüz oluşturulmuş bir sınav bulunmamaktadır.</div>';
+                    return;
                 }
-            });
-            
-            if(exams.length === 0) {
-                container.innerHTML = "Henüz sınav yok.";
-                return;
+                
+                // HTML Şablonu (İstediğiniz görsele uygun)
+                container.innerHTML = exams.map(exam => `
+                    <div class="bg-white p-6 border rounded-xl shadow-sm hover:shadow-md transition-all relative flex flex-col">
+                        <div class="flex justify-between items-start mb-4">
+                            <div>
+                                <h3 class="font-extrabold text-xl text-indigo-700 tracking-tight">${exam.code}</h3>
+                                <p class="text-sm text-gray-500 italic mt-1">${exam.exam_description || 'Açıklama girilmemiş.'}</p>
+                            </div>
+                            <input type="text" 
+                                   class="text-xs p-2 border rounded-lg w-32 text-right placeholder-gray-400 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-200 outline-none transition-all" 
+                                   placeholder="Özel sınav adı" 
+                                   value="${exam.custom_name || ''}"
+                                   onchange="window.updateExamName('${exam.code}', this.value)">
+                        </div>
+                        
+                        <div class="space-y-3 text-sm flex-grow">
+                            <div class="flex items-center justify-between py-1 border-b border-gray-50">
+                                <span class="text-gray-600 font-medium w-1/3">Hazırlayan:</span>
+                                <div class="flex-1 flex space-x-2">
+                                    <input id="teacherName-${exam.code}" type="text" value="${exam.teacher_name}" class="p-1 px-2 border rounded text-sm flex-1 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-200 outline-none transition-all">
+                                    <button onclick="window.updateExamTeacher('${exam.code}')" class="bg-green-500 text-white px-3 py-1 rounded-md text-xs font-bold hover:bg-green-600 transition shadow-sm flex items-center">💾 Kaydet</button>
+                                </div>
+                            </div>
+                            <div class="flex justify-between py-1 border-b border-gray-50">
+                                <span class="text-gray-600 font-medium">Süre:</span>
+                                <span class="font-bold text-gray-800">${Math.floor(exam.time_limit/60)} dk</span>
+                            </div>
+                            <div class="flex justify-between items-center py-1 border-b border-gray-50">
+                                <span class="text-gray-600 font-medium">Soru Sayısı:</span>
+                                <button onclick="window.showExamQuestions('${exam.code}')" class="text-blue-600 hover:text-blue-800 font-bold text-lg transition-colors flex items-center">
+                                    ${exam.question_count} 
+                                    <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 ml-1 opacity-50" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" /></svg>
+                                </button>
+                            </div>
+                            <div class="flex justify-between items-center py-1 border-b border-gray-50">
+                                <span class="text-gray-600 font-medium">Öğrenci Sayısı:</span>
+                                <button onclick="window.showExamStudents('${exam.code}')" class="text-blue-600 hover:text-blue-800 font-bold text-lg transition-colors flex items-center">
+                                    ${exam.student_count}
+                                    <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 ml-1 opacity-50" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" /></svg>
+                                </button>
+                            </div>
+                            <div class="flex justify-between py-1">
+                                <span class="text-gray-600 font-medium">Katılım:</span>
+                                <span class="font-bold text-lg text-gray-800">${exam.submission_count}</span>
+                            </div>
+                        </div>
+                        <button onclick="window.deleteExam('${exam.code}')" class="mt-6 w-full bg-red-50 text-red-600 text-xs py-3 rounded-lg font-bold hover:bg-red-100 transition border border-red-100 flex items-center justify-center">
+                            <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
+                            Bu Sınavı Sil
+                        </button>
+                    </div>
+                `).join('');
+            } catch (error) {
+                console.error(error);
+                container.innerHTML = `<div class="col-span-full text-center text-red-500 py-10 font-bold">Veriler yüklenirken hata oluştu.<br><span class="text-sm font-normal">${error.message}</span></div>`;
             }
-            
-            container.innerHTML = exams.map(exam => `
-                <div class="bg-white p-4 border rounded shadow-sm hover:shadow-md transition">
-                    <div class="flex justify-between items-start mb-2">
-                        <h3 class="font-bold text-lg text-indigo-700">${exam.code}</h3>
-                        <input type="text" 
-                               class="text-xs p-1 border rounded w-24" 
-                               placeholder="Sınav adı" 
-                               value="${exam.custom_name || ''}"
-                               onchange="window.updateExamName('${exam.code}', this.value)">
-                    </div>
-                    <p class="text-xs text-gray-500 mb-2">${exam.exam_description}</p>
-                    <div class="space-y-1 text-sm">
-                        <div class="flex justify-between">
-                            <span class="text-gray-600">Hazırlayan:</span>
-                            <span class="font-medium">${exam.teacher_name}</span>
-                        </div>
-                        <div class="flex justify-between">
-                            <span class="text-gray-600">Süre:</span>
-                            <span>${Math.floor(exam.time_limit/60)} dk</span>
-                        </div>
-                        <div class="flex justify-between">
-                            <span class="text-gray-600">Soru Sayısı:</span>
-                            <button onclick="window.showExamQuestions('${exam.code}')" class="text-blue-600 hover:underline font-medium">${exam.question_count}</button>
-                        </div>
-                        <div class="flex justify-between">
-                            <span class="text-gray-600">Öğrenci Sayısı:</span>
-                            <button onclick="window.showExamStudents('${exam.code}')" class="text-blue-600 hover:underline font-medium">${exam.student_count}</button>
-                        </div>
-                        <div class="flex justify-between">
-                            <span class="text-gray-600">Katılım:</span>
-                            <span>${exam.submission_count}</span>
-                        </div>
-                    </div>
-                    <button onclick="window.deleteExam('${exam.code}')" class="mt-3 w-full bg-red-100 text-red-700 text-xs py-2 rounded hover:bg-red-200">Sınavı Sil</button>
-                </div>
-            `).join('');
         }
         
+        // Özel isim güncelleme
         window.updateExamName = async (code, name) => {
-            await setDoc(getConfigRef(code), { custom_name: sanitizeInput(name) }, { merge: true });
+            try {
+                await setDoc(getConfigRef(code), { custom_name: sanitizeInput(name) }, { merge: true });
+            } catch(e) { alert("İsim güncellenemedi: " + e.message); }
         }
         
+        // YENİ: Hazırlayan öğretmeni güncelleme
+        window.updateExamTeacher = async (code) => {
+            const inputBtn = document.getElementById(`teacherName-${code}`);
+            const newName = sanitizeInput(inputBtn.value);
+            if(!newName.trim()) return alert("Öğretmen adı boş olamaz.");
+            
+            try {
+                inputBtn.disabled = true;
+                await setDoc(getConfigRef(code), { teacher_name: newName }, { merge: true });
+                
+                // Görsel geri bildirim (Yeşil yanıp sönme)
+                inputBtn.classList.add('bg-green-100', 'text-green-800', 'border-green-300');
+                setTimeout(() => {
+                    inputBtn.classList.remove('bg-green-100', 'text-green-800', 'border-green-300');
+                    inputBtn.disabled = false;
+                }, 1500);
+            } catch(e) {
+                alert("Hata: " + e.message);
+                inputBtn.disabled = false;
+            }
+        }
+
+        // YENİ: İlgili sekmeye yönlendirme yardımcısı
+        window.redirectToTab = (tabName, code) => {
+            document.getElementById('customModal').classList.add('hidden'); // Modalı kapat
+            window.changeTab(tabName); // Sekmeyi değiştir
+            
+            // İlgili inputu doldur
+            setTimeout(() => {
+                if(tabName === 'questions') document.getElementById('uploadQCode').value = code;
+                if(tabName === 'lists') document.getElementById('uploadListCode').value = code;
+            }, 100);
+        }
+        
+        // GÜNCELLENMİŞ: Soruları göster (Düzenleme butonu eklendi)
         window.showExamQuestions = async (code) => {
             try {
                 const qSnap = await getDoc(getQuestionsRef(code));
                 const questions = qSnap.exists() ? qSnap.data().questions_list : [];
                 
-                let content = `<h3 class="text-xl font-bold mb-4">${code} - Sorular</h3>`;
+                let content = `
+                    <div class="sticky top-0 bg-white z-10 pb-4 border-b mb-4">
+                        <h3 class="text-xl font-bold text-indigo-700">${code} - Sorular</h3>
+                        <button onclick="window.redirectToTab('questions', '${code}')" class="mt-3 w-full bg-orange-600 hover:bg-orange-700 text-white py-3 rounded-lg font-bold shadow-md transition-all flex items-center justify-center">
+                            ✏️ Bu Sınavın Sorularını Düzenlemeye Git
+                        </button>
+                    </div>`;
                 
                 if(questions.length === 0) {
-                    content += `<p class="text-gray-500">Bu sınav için henüz soru yok.</p>`;
+                    content += `<p class="text-gray-500 text-center py-6 font-medium">Bu sınav için henüz soru yüklenmemiş.</p>`;
                 } else {
-                    content += `<div class="max-h-96 overflow-y-auto text-left">`;
+                    content += `<div class="max-h-[60vh] overflow-y-auto text-left pr-2 space-y-4">`;
                     questions.forEach((q, i) => {
                         content += `
-                            <div class="mb-4 p-3 border rounded bg-gray-50">
-                                <p class="font-bold">Soru ${i+1}: ${sanitizeInput(q.question)}</p>
-                                <ul class="mt-2 ml-4">
-                                    ${q.options.map(opt => `<li class="${opt === q.answer ? 'text-green-600 font-bold' : ''}">${sanitizeInput(opt)}</li>`).join('')}
+                            <div class="p-4 border rounded-lg bg-gray-50 shadow-sm">
+                                <div class="flex justify-between items-start">
+                                    <p class="font-bold text-gray-800 text-sm">Soru ${i+1}</p>
+                                </div>
+                                <p class="mt-2 text-gray-700 font-semibold">${sanitizeInput(q.question)}</p>
+                                ${q.image ? `<img src="${q.image}" class="mt-3 max-h-40 rounded-lg border shadow-sm object-contain bg-white mx-auto">` : ''}
+                                <ul class="mt-3 space-y-2 ml-2">
+                                    ${q.options.map(opt => `
+                                        <li class="${opt === q.answer ? 'text-green-700 font-bold flex items-center bg-green-50 p-2 rounded border border-green-200' : 'text-gray-600 p-2 border border-transparent'}">
+                                            ${opt === q.answer ? '✅ ' : '⚪ '} ${sanitizeInput(opt)}
+                                        </li>`).join('')}
                                 </ul>
-                                ${q.image ? `<img src="${q.image}" class="mt-2 max-h-32 rounded border">` : ''}
                             </div>
                         `;
                     });
                     content += `</div>`;
                 }
-                
-                showCustomAlert(`${code} Soruları`, content);
-            } catch(e) {
-                showCustomAlert("Hata", "Sorular yüklenirken hata oluştu: " + e.message);
-            }
+                showCustomAlert(`Soru Önizleme: ${code}`, content);
+            } catch(e) { showCustomAlert("Hata", "Sorular yüklenirken hata oluştu: " + e.message); }
         }
         
+        // GÜNCELLENMİŞ: Öğrencileri göster (Düzenleme butonu eklendi)
         window.showExamStudents = async (code) => {
             try {
                 const listSnap = await getDoc(doc(db, "student_lists", code));
                 const students = listSnap.exists() ? listSnap.data().students : [];
                 
-                let content = `<h3 class="text-xl font-bold mb-4">${code} - Öğrenci Listesi</h3>`;
+                let content = `
+                    <div class="sticky top-0 bg-white z-10 pb-4 border-b mb-4">
+                        <h3 class="text-xl font-bold text-teal-700">${code} - Öğrenci Listesi</h3>
+                        <button onclick="window.redirectToTab('lists', '${code}')" class="mt-3 w-full bg-teal-600 hover:bg-teal-700 text-white py-3 rounded-lg font-bold shadow-md transition-all flex items-center justify-center">
+                            👥 Bu Sınavın Listesini Düzenlemeye Git
+                        </button>
+                    </div>`;
                 
                 if(students.length === 0) {
-                    content += `<p class="text-gray-500">Bu sınav için henüz öğrenci listesi yok.</p>`;
+                    content += `<p class="text-gray-500 text-center py-6 font-medium">Bu sınav için henüz öğrenci listesi yüklenmemiş.</p>`;
                 } else {
+                    students.sort((a,b) => a.className.localeCompare(b.className) || a.name.localeCompare(b.name));
                     content += `
-                        <div class="max-h-96 overflow-y-auto">
-                            <table class="min-w-full text-sm">
-                                <thead class="bg-gray-100 sticky top-0">
+                        <div class="max-h-[60vh] overflow-y-auto border rounded-lg">
+                            <table class="min-w-full text-sm divide-y divide-gray-200">
+                                <thead class="bg-gray-50 sticky top-0 shadow-sm">
                                     <tr>
-                                        <th class="p-2 text-left">No</th>
-                                        <th class="p-2 text-left">Sınıf</th>
-                                        <th class="p-2 text-left">Ad Soyad</th>
+                                        <th class="p-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">No</th>
+                                        <th class="p-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Sınıf</th>
+                                        <th class="p-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Ad Soyad</th>
                                     </tr>
                                 </thead>
-                                <tbody>
-                                    ${students.map(s => `
-                                        <tr class="border-b">
-                                            <td class="p-2">${s.number}</td>
-                                            <td class="p-2">${s.className}</td>
-                                            <td class="p-2">${s.name}</td>
+                                <tbody class="bg-white divide-y divide-gray-200">
+                                    ${students.map((s, i) => `
+                                        <tr class="${i%2===0 ? 'bg-white' : 'bg-gray-50'} hover:bg-indigo-50 transition-colors">
+                                            <td class="p-3 font-mono text-xs font-bold text-indigo-600">${s.number}</td>
+                                            <td class="p-3 text-gray-700">${s.className}</td>
+                                            <td class="p-3 font-medium text-gray-900">${s.name}</td>
                                         </tr>
                                     `).join('')}
                                 </tbody>
                             </table>
                         </div>
+                        <p class="text-xs text-gray-500 mt-2 text-right">Toplam ${students.length} öğrenci</p>
                     `;
                 }
-                
-                showCustomAlert(`${code} Öğrencileri`, content);
-            } catch(e) {
-                showCustomAlert("Hata", "Öğrenci listesi yüklenirken hata oluştu: " + e.message);
-            }
+                showCustomAlert(`Öğrenci Listesi: ${code}`, content);
+            } catch(e) { showCustomAlert("Hata", "Liste yüklenirken hata oluştu: " + e.message); }
         }
         
+        // Sınav Silme Fonksiyonu
         window.deleteExam = async (code) => {
-            if(confirm(`${code} sınavını ve tüm sorularını, öğrenci listesini ve sonuçlarını silmek istediğinize emin misiniz?`)) {
-                // Sınav ayarlarını sil
-                await deleteDoc(doc(db, "exam_settings", code));
-                
-                // Soruları sil
-                await deleteDoc(doc(db, "questions_pool", code));
-                
-                // Öğrenci listesini sil
-                await deleteDoc(doc(db, "student_lists", code));
-                
-                // Sonuçları sil
-                const submissions = await getDocs(query(collection(db, "quiz_submissions"), where("examCode", "==", code)));
-                const deletePromises = [];
-                submissions.forEach(doc => {
-                    deletePromises.push(deleteDoc(doc.ref));
-                });
-                await Promise.all(deletePromises);
-                
-                alert("Sınav ve tüm verileri silindi.");
-                loadMyExams();
+            if(confirm(`⚠️ DİKKAT!\n\n"${code}" kodlu sınavı silmek üzeresiniz.\n\nBuna bağlı TÜM SORULAR, ÖĞRENCİ LİSTESİ ve SINAV SONUÇLARI kalıcı olarak silinecektir.\n\nBu işlem geri alınamaz. Onaylıyor musunuz?`)) {
+                const btn = document.activeElement;
+                btn.innerText = "Siliniyor..."; btn.disabled = true;
+                try {
+                    await deleteDoc(doc(db, "exam_settings", code));
+                    await deleteDoc(doc(db, "questions_pool", code));
+                    await deleteDoc(doc(db, "student_lists", code));
+                    
+                    const submissions = await getDocs(query(collection(db, "quiz_submissions"), where("examCode", "==", code)));
+                    const deletePromises = [];
+                    submissions.forEach(doc => deletePromises.push(deleteDoc(doc.ref)));
+                    await Promise.all(deletePromises);
+                    
+                    alert("✅ Sınav ve tüm verileri başarıyla silindi.");
+                    loadMyExams(); // Listeyi yenile
+                } catch(e) {
+                    alert("Silme işlemi sırasında hata oluştu: " + e.message);
+                    btn.innerText = "Bu Sınavı Sil"; btn.disabled = false;
+                }
             }
         }
 
