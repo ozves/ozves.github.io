@@ -1110,155 +1110,40 @@ async function showResultScreen(data) {
                     alert("Şifre güncellendi.");
                 }
             };
-// --- EXCEL SÜRÜKLE-BIRAK YÜKLEME (DÜZELTİLMİŞ) ---
-const dropArea = document.getElementById("listInput");
 
-["dragenter", "dragover", "dragleave", "drop"].forEach(evt => {
-    dropArea.addEventListener(evt, e => e.preventDefault());
-});
-
-["dragenter", "dragover"].forEach(evt => {
-    dropArea.addEventListener(evt, () => {
-        dropArea.style.borderColor = "#4f46e5";
-        dropArea.style.background = "#eef2ff";
-    });
-});
-
-["dragleave", "drop"].forEach(evt => {
-    dropArea.addEventListener(evt, () => {
-        dropArea.style.borderColor = "#cbd5e0";
-        dropArea.style.background = "#f9fafb";
-    });
-});
-
-dropArea.addEventListener("drop", async (e) => {
-    const file = e.dataTransfer.files[0];
-    if (!file) return;
-
-    if (!file.name.endsWith(".xlsx")) {
-        alert("Lütfen .xlsx formatında bir Excel dosyası yükleyin.");
-        return;
-    }
-
-    const reader = new FileReader();
-    reader.onload = (event) => {
-        try {
-            const data = new Uint8Array(event.target.result);
-            const workbook = XLSX.read(data, { type: "array" });
-            const sheet = workbook.Sheets[workbook.SheetNames[0]];
-            const json = XLSX.utils.sheet_to_json(sheet, { header: 1 });
-
-            // Excel → listInput metni oluştur (Geliştirilmiş)
-            const lines = json
-                .filter(row => row && row.length >= 3 && row.some(cell => cell && cell.toString().trim()))
-                .map(row => {
-                    const num = (row[0] || "").toString().trim();
-                    const className = (row[1] || "").toString().trim();
-                    const name = (row[2] || "").toString().trim();
-                    
-                    // Boş satırları filtrele
-                    if (!num && !className && !name) return null;
-                    
-                    return `${num}\t${className}\t${name}`;
-                })
-                .filter(line => line !== null)
-                .join("\n");
-
-            document.getElementById("listInput").innerText = lines;
-            
-            // Başarı mesajı
-            const lineCount = lines.split('\n').filter(line => line.trim()).length;
-            if (lineCount > 0) {
-                alert(`${lineCount} öğrenci başarıyla yüklendi!`);
-            } else {
-                alert("Excel dosyasında uygun veri bulunamadı. Lütfen sütun yapısını kontrol edin.");
-            }
-            
-        } catch (error) {
-            console.error("Excel okuma hatası:", error);
-            alert("Excel dosyası okunurken hata oluştu: " + error.message);
-        }
-    };
-
-    reader.readAsArrayBuffer(file);
-});
-
-// --- LİSTE YÜKLEME (Geliştirilmiş) ---
-document.getElementById('btnUploadList').onclick = async () => {
-    const code = sanitizeExamCode(document.getElementById('uploadListCode').value);
-    const txt = document.getElementById('listInput').innerText || document.getElementById('listInput').textContent;
-    
-    if(!code || !txt.trim()) return alert("Eksik bilgi");
-    
-    const students = [];
-    const lines = txt.split('\n').filter(x => x.trim());
-    
-    let successCount = 0;
-    let errorCount = 0;
-    
-    lines.forEach((line, index) => {
-        try {
-            // Önce tab ile böl, sonra çoklu boşluk ile böl
-            let parts = line.split('\t');
-            if (parts.length < 3) {
-                parts = line.split(/\s{2,}/);
-            }
-            
-            // Hala yeterli parça yoksa, tek boşluk ile böl (son çare)
-            if (parts.length < 3) {
-                parts = line.split(/\s+/);
-            }
-            
-            if(parts.length >= 3) {
-                const number = parts[0].trim();
-                const className = sanitizeInput(parts[1].trim());
-                const name = sanitizeInput(parts[2].trim());
+            // --- LİSTE YÜKLEME (Geliştirilmiş) ---
+            document.getElementById('btnUploadList').onclick = async () => {
+                const code = sanitizeExamCode(document.getElementById('uploadListCode').value);
+                const txt = document.getElementById('listInput').innerText || document.getElementById('listInput').textContent;
                 
-                // Tüm alanların dolu olduğundan emin ol
-                if (number && className && name) {
-                    students.push({ 
-                        number: number, 
-                        className: className, 
-                        name: name
-                    });
-                    successCount++;
-                } else {
-                    console.warn(`Satır ${index + 1} eksik veri içeriyor:`, {number, className, name});
-                    errorCount++;
-                }
-            } else {
-                console.warn(`Satır ${index + 1} yeterli sütun içermiyor:`, parts);
-                errorCount++;
-            }
-        } catch (error) {
-            console.error(`Satır ${index + 1} işlenirken hata:`, error);
-            errorCount++;
+                if(!code || !txt.trim()) return alert("Eksik bilgi");
+                
+                const students = [];
+                const lines = txt.split('\n').filter(x => x.trim());
+                
+                lines.forEach(line => {
+                    // Hem tab hem de boşluk ile ayrılmış verileri destekle
+                    const parts = line.split('\t').length > 1 ? line.split('\t') : line.split(/\s{2,}/);
+                    if(parts.length >= 3) {
+                        students.push({ 
+                            number: parts[0].trim(), 
+                            className: sanitizeInput(parts[1].trim()), 
+                            name: sanitizeInput(parts[2].trim())
+                        });
+                    }
+                });
+                
+                if(students.length === 0) return alert("Liste formatı hatalı. Excel'den kopyaladığınızdan emin olun.");
+                
+                await setDoc(doc(db, "student_lists", code), { students });
+                alert(`${students.length} öğrenci listeye eklendi.`);
+                document.getElementById('listInput').innerText = '';
+            };
+            
+            // Initial Load
+            loadResults();
         }
-    });
-    
-    if(students.length === 0) {
-        let errorMsg = "Liste formatı hatalı.\n";
-        errorMsg += `Başarılı: ${successCount}, Hatalı: ${errorCount}\n`;
-        errorMsg += "Excel formatı: [Numara] [Sınıf] [İsim] şeklinde olmalıdır.`;
-        return alert(errorMsg);
-    }
-    
-    try {
-        await setDoc(doc(db, "student_lists", code), { students });
-        alert(`${students.length} öğrenci listeye eklendi. (${errorCount} hatalı satır atlandı)`);
-        document.getElementById('listInput').innerText = '';
-    } catch (error) {
-        console.error("Firebase kaydetme hatası:", error);
-        alert("Liste kaydedilirken hata oluştu: " + error.message);
-    }
-};
 
-// Debug için: Yüklenen içeriği konsola yazdır
-function debugListContent() {
-    const content = document.getElementById("listInput").innerText;
-    console.log("Liste içeriği:", content);
-    console.log("Satırlar:", content.split('\n'));
-}
         // --- DASHBOARD YARDIMCILARI ---
         function loadResults() {
             const tbody = document.getElementById('resultsTableBody');
