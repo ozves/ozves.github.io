@@ -58,17 +58,47 @@
 
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
-        import { getAuth, signInAnonymously, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
-        import { getFirestore, doc, collection, onSnapshot, serverTimestamp, query, where, getDocs, deleteDoc, getDoc, addDoc, updateDoc, setDoc, orderBy } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+        import { 
+            getFirestore, 
+            doc, 
+            collection, 
+            onSnapshot, 
+            serverTimestamp, 
+            query, 
+            where, 
+            getDocs, 
+            deleteDoc, 
+            getDoc, 
+            addDoc, 
+            updateDoc, 
+            setDoc, 
+            orderBy,
+            limit
+        } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+        import { 
+            getAuth, 
+            signInAnonymously, 
+            onAuthStateChanged 
+        } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
 
-        const firebaseConfig = {
-            apiKey: "AIzaSyCHhFAHbWnclad6yFuI-Pw9gX6F_Dx1B2c",
-            authDomain: "online-sinav-b3644.firebaseapp.com",
-            projectId: "online-sinav-b3644",
-            storageBucket: "online-sinav-b3644.firebasestorage.app",
-            messagingSenderId: "965507531268",
-            appId: "1:965507531268:web:94cfd13774a40b6cf16b51"
-        };
+        // Basit Obfuscation ile Firebase Config
+        const firebaseConfig = (() => {
+            const config = {
+                apiKey: "2c1Bx6F_D9Xgw-P6uFyIdalcnWHbAFhCySazIA",
+                authDomain: "moc.ppa463-bavnis-enilno",
+                projectId: "463-bavnis-enilno",
+                storageBucket: "moc.egarotsabesabif.463-bavnis-enilno",
+                messagingSenderId: "862135705569",
+                appId: "15b61fc04b730a47edcf94:1:862135705569"
+            };
+            
+            // Reverse işlemi
+            Object.keys(config).forEach(key => {
+                config[key] = config[key].split('').reverse().join('');
+            });
+            
+            return config;
+        })();
 
         // --- Global Değişkenler ---
         let db, auth;
@@ -103,9 +133,35 @@
         let allSubmissions = [];
         let isTeacherMode = false;
 
+        // --- INPUT VALIDATION FONKSİYONLARI ---
+        function sanitizeInput(input) {
+            if (typeof input !== 'string') return '';
+            return input
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;')
+                .replace(/'/g, '&#x27;')
+                .replace(/"/g, '&quot;')
+                .substring(0, 500);
+        }
+
+        function sanitizeExamCode(code) {
+            if (typeof code !== 'string') return '';
+            return code.replace(/[^a-zA-Z0-9_]/g, '').toUpperCase().substring(0, 20);
+        }
+
+        function validateStudentData(student) {
+            if (!student || typeof student !== 'object') return false;
+            
+            return (
+                typeof student.name === 'string' && student.name.trim().length > 0 &&
+                typeof student.number === 'string' && student.number.trim().length > 0 &&
+                typeof student.className === 'string' && student.className.trim().length > 0
+            );
+        }
+
         // Helper: Firebase Referansları
-        const getConfigRef = (code) => doc(db, "exam_settings", code.toUpperCase());
-        const getQuestionsRef = (code) => doc(db, "questions_pool", code.toUpperCase());
+        const getConfigRef = (code) => doc(db, "exam_settings", sanitizeExamCode(code));
+        const getQuestionsRef = (code) => doc(db, "questions_pool", sanitizeExamCode(code));
 
         // --- SİSTEM BAŞLATMA ---
         async function initializeFirebase() {
@@ -155,13 +211,23 @@
             showLoginForm();
         }
 
-        // --- RESET FONKSİYONU (Sayfa Yenilemeden Başa Dönme) ---
+        // --- RESET FONKSİYONU (Geliştirilmiş) ---
         function resetApp() {
-            // Tüm state'i sıfırla
-            clearInterval(timerInterval);
-            clearInterval(autoSaveInterval);
-            window.onblur = null;
+            // Tüm interval'leri temizle
+            if (timerInterval) {
+                clearInterval(timerInterval);
+                timerInterval = null;
+            }
+            if (autoSaveInterval) {
+                clearInterval(autoSaveInterval);
+                autoSaveInterval = null;
+            }
             
+            // Event listener'ları temizle
+            window.onblur = null;
+            document.oncontextmenu = null;
+            
+            // Global değişkenleri resetle
             currentExamConfig = { exam_code: "DEFAULT", teacher_name: systemPreparerName, time_limit: 600, exam_description: "..." };
             quizQuestions = [];
             studentList = [];
@@ -188,10 +254,10 @@
                 // 1. Ayarları Çek
                 const configSnap = await getDoc(getConfigRef(code));
                 if (configSnap.exists()) {
-                    currentExamConfig = { exam_code: code.toUpperCase(), ...configSnap.data() };
+                    currentExamConfig = { exam_code: sanitizeExamCode(code), ...configSnap.data() };
                 } else {
                     currentExamConfig = { 
-                        exam_code: code.toUpperCase(), 
+                        exam_code: sanitizeExamCode(code), 
                         teacher_name: systemPreparerName, 
                         time_limit: 600, 
                         exam_description: "Sınav ayarları bulunamadı." 
@@ -203,7 +269,7 @@
                 quizQuestions = questionsSnap.exists() ? (questionsSnap.data().questions_list || []) : [];
                 
                 // 3. Öğrenci Listesini Çek
-                const listSnap = await getDoc(doc(db, "student_lists", code));
+                const listSnap = await getDoc(doc(db, "student_lists", sanitizeExamCode(code)));
                 studentList = listSnap.exists() ? (listSnap.data().students || []) : [];
 
                 return true;
@@ -250,7 +316,7 @@
         let typingTimer;
         async function handleCodeEntry() {
             clearTimeout(typingTimer);
-            const code = document.getElementById('examCodeInput').value.trim().toUpperCase();
+            const code = sanitizeExamCode(document.getElementById('examCodeInput').value.trim());
             const infoArea = document.getElementById('examInfoArea');
             const loginFields = document.getElementById('studentLoginFields');
             const btn = document.getElementById('startQuizButton');
@@ -267,7 +333,7 @@
                 const mins = Math.floor(currentExamConfig.time_limit / 60);
                 infoArea.innerHTML = `
                     <p class="font-bold">Sınav: ${code}</p>
-                    <p>${currentExamConfig.exam_description}</p>
+                    <p>${sanitizeInput(currentExamConfig.exam_description)}</p>
                     <p class="text-xs mt-1">⏱️ Süre: ${mins} Dakika | 📝 Soru: ${quizQuestions.length}</p>
                 `;
                 infoArea.classList.remove('hidden');
@@ -299,7 +365,7 @@
                     loginFields.innerHTML = `
                         <select id="classSelector" class="w-full p-3 border rounded-lg font-bold text-indigo-700 bg-white">
                             <option value="">-- Sınıfınızı Seçin --</option>
-                            ${classes.map(c => `<option value="${c}">${c}</option>`).join('')}
+                            ${classes.map(c => `<option value="${sanitizeInput(c)}">${sanitizeInput(c)}</option>`).join('')}
                         </select>
                         <select id="studentSelector" class="w-full p-3 border rounded-lg bg-gray-100" disabled>
                             <option value="">-- Önce Sınıf Seçin --</option>
@@ -320,7 +386,7 @@
                         
                         if (cls) {
                             const filtered = students.filter(s => s.className === cls);
-                            stuSel.innerHTML += filtered.map(s => `<option value="${s.number}_${s.name}">${s.name}</option>`).join('');
+                            stuSel.innerHTML += filtered.map(s => `<option value="${s.number}_${s.name}">${sanitizeInput(s.name)}</option>`).join('');
                         }
                     };
 
@@ -346,8 +412,11 @@
 
         // Öğrenci Giriş İşlemi
         async function handleStudentLogin() {
-            const code = document.getElementById('examCodeInput').value.trim().toUpperCase();
-            if (!code) return;
+            const code = sanitizeExamCode(document.getElementById('examCodeInput').value.trim());
+            if (!code) {
+                showCustomAlert("Hata", "Geçersiz sınav kodu.");
+                return;
+            }
 
             let name, number, className;
             
@@ -355,21 +424,29 @@
                 // Liste Modu
                 const selVal = document.getElementById('studentSelector').value;
                 const inputNum = document.getElementById('numberVerify').value;
-                if (!selVal || !inputNum) return alert("Eksik bilgi.");
+                if (!selVal || !inputNum) {
+                    showCustomAlert("Hata", "Eksik bilgi.");
+                    return;
+                }
 
                 const [realNum, realName] = selVal.split('_');
                 
                 if (realNum !== inputNum) {
                     return showCustomAlert("Hatalı Doğrulama", "Seçtiğiniz ismin okul numarası ile girdiğiniz numara eşleşmiyor.");
                 }
-                name = realName;
+                name = sanitizeInput(realName);
                 number = realNum;
-                className = document.getElementById('classSelector').value;
+                className = sanitizeInput(document.getElementById('classSelector').value);
             } else {
                 // Manuel Mod
-                name = document.getElementById('nameInput').value;
+                name = sanitizeInput(document.getElementById('nameInput').value);
                 number = document.getElementById('numberInput').value;
-                className = document.getElementById('classInput').value;
+                className = sanitizeInput(document.getElementById('classInput').value);
+            }
+
+            if (!name || !number || !className) {
+                showCustomAlert("Hata", "Tüm alanları doldurun.");
+                return;
             }
 
             if (quizQuestions.length === 0) return showCustomAlert("Hata", "Bu sınavda hiç soru yok.");
@@ -496,13 +573,13 @@
             const imageHtml = q.image ? `<div class="mb-4 flex justify-center"><img src="${q.image}" class="max-h-64 rounded-lg shadow border object-contain"></div>` : '';
 
             document.getElementById('questionArea').innerHTML = `
-                <div class="font-semibold text-lg text-gray-800 mb-4 select-none">Soru ${idx + 1}: ${q.question}</div>
+                <div class="font-semibold text-lg text-gray-800 mb-4 select-none">Soru ${idx + 1}: ${sanitizeInput(q.question)}</div>
                 ${imageHtml}
                 <div class="space-y-3">
                     ${shuffledOpts.map(opt => `
                         <label class="flex items-center p-4 border-2 rounded-lg cursor-pointer transition-all ${currAns === opt ? 'bg-indigo-50 border-indigo-500 shadow-md' : 'border-gray-200 hover:bg-gray-50'}">
-                            <input type="radio" name="opt" value="${opt}" class="w-5 h-5 text-indigo-600" ${currAns === opt ? 'checked' : ''}>
-                            <span class="ml-3 text-gray-700 font-medium select-none">${opt}</span>
+                            <input type="radio" name="opt" value="${sanitizeInput(opt)}" class="w-5 h-5 text-indigo-600" ${currAns === opt ? 'checked' : ''}>
+                            <span class="ml-3 text-gray-700 font-medium select-none">${sanitizeInput(opt)}</span>
                         </label>
                     `).join('')}
                 </div>
@@ -542,6 +619,7 @@
                 if (diff <= 0) {
                     diff = 0;
                     clearInterval(timerInterval);
+                    timerInterval = null;
                     finishQuiz(true);
                     return;
                 }
@@ -582,34 +660,50 @@
         async function saveProgress() {
             if (isTeacherMode || !isDbConnected) return;
             
-            const now = Date.now();
-            const remainingSeconds = Math.floor((examendTimeStamp - now) / 1000);
-
-            const data = {
-                ...studentData, 
-                studentKey: `${studentData.examCode}_${studentData.number}`,
-                questionOrder, 
-                selectedAnswers, 
-                currentQuestionIndex, 
-                timeLeft: remainingSeconds > 0 ? remainingSeconds : 0, 
-                focusLossCount,
-                lastUpdated: serverTimestamp()
-            };
-
             try {
+                const now = Date.now();
+                const remainingSeconds = Math.floor((examendTimeStamp - now) / 1000);
+
+                // Data validation
+                if (!validateStudentData(studentData)) {
+                    console.warn("Geçersiz öğrenci verisi");
+                    return;
+                }
+
+                const data = {
+                    ...studentData, 
+                    studentKey: `${sanitizeExamCode(studentData.examCode)}_${studentData.number}`,
+                    questionOrder, 
+                    selectedAnswers, 
+                    currentQuestionIndex, 
+                    timeLeft: remainingSeconds > 0 ? remainingSeconds : 0, 
+                    focusLossCount,
+                    lastUpdated: serverTimestamp()
+                };
+
                 if (currentSessionDocId) {
                     await updateDoc(doc(db, "active_sessions", currentSessionDocId), data);
                 } else { 
                     const ref = await addDoc(collection(db, "active_sessions"), data); 
                     currentSessionDocId = ref.id; 
                 }
-            } catch(e) { console.log("Autosave fail (minor)"); }
+            } catch(e) { 
+                console.warn("Autosave failed:", e.message);
+            }
         }
 
         // --- SINAV BİTİRME ---
         async function finishQuiz(force = false) {
-            clearInterval(timerInterval); 
-            clearInterval(autoSaveInterval); 
+            // Interval'leri temizle
+            if (timerInterval) {
+                clearInterval(timerInterval);
+                timerInterval = null;
+            }
+            if (autoSaveInterval) {
+                clearInterval(autoSaveInterval);
+                autoSaveInterval = null;
+            }
+            
             window.onblur = null;
             document.oncontextmenu = null;
 
@@ -967,7 +1061,7 @@
             };
 
             document.getElementById('btnUploadQ').onclick = async () => {
-                const code = document.getElementById('uploadQCode').value.toUpperCase();
+                const code = sanitizeExamCode(document.getElementById('uploadQCode').value);
                 const rawJson = document.getElementById('jsonInput').value;
                 
                 if(!code) return alert("Sınav kodu girin.");
@@ -986,19 +1080,19 @@
 
             // --- AYARLAR KAYDETME ---
             document.getElementById('btnSaveSettings').onclick = async () => {
-                const code = document.getElementById('setExamCode').value.toUpperCase();
+                const code = sanitizeExamCode(document.getElementById('setExamCode').value);
                 if(!code) return alert("Kod gerekli");
                 await setDoc(getConfigRef(code), {
                     teacher_name: systemPreparerName,
                     time_limit: parseInt(document.getElementById('setTime').value) * 60,
-                    exam_description: document.getElementById('setDesc').value
+                    exam_description: sanitizeInput(document.getElementById('setDesc').value)
                 }, { merge: true });
                 alert("Ayarlar kaydedildi.");
             };
 
             // --- ÖĞRETMEN ADI KAYDETME ---
             document.getElementById('btnSaveTeacher').onclick = async () => {
-                const teacherName = document.getElementById('setTeacherName').value;
+                const teacherName = sanitizeInput(document.getElementById('setTeacherName').value);
                 if(!teacherName) return alert("Öğretmen adı gerekli");
                 
                 await setDoc(doc(db, "exam_settings", "admin_config"), { 
@@ -1022,7 +1116,7 @@
 
             // --- LİSTE YÜKLEME (Geliştirilmiş) ---
             document.getElementById('btnUploadList').onclick = async () => {
-                const code = document.getElementById('uploadListCode').value.toUpperCase();
+                const code = sanitizeExamCode(document.getElementById('uploadListCode').value);
                 const txt = document.getElementById('listInput').innerText || document.getElementById('listInput').textContent;
                 
                 if(!code || !txt.trim()) return alert("Eksik bilgi");
@@ -1036,8 +1130,8 @@
                     if(parts.length >= 3) {
                         students.push({ 
                             number: parts[0].trim(), 
-                            className: parts[1].trim(), 
-                            name: parts[2].trim() 
+                            className: sanitizeInput(parts[1].trim()), 
+                            name: sanitizeInput(parts[2].trim())
                         });
                     }
                 });
@@ -1058,7 +1152,12 @@
             const tbody = document.getElementById('resultsTableBody');
             tbody.innerHTML = '<tr><td colspan="9" class="p-4 text-center">Yükleniyor...</td></tr>';
             
-            onSnapshot(query(collection(db, "quiz_submissions"), where("timestamp", ">", new Date(0))), (snap) => {
+            // OPTİMİZE EDİLMİŞ QUERY: Son 500 kayıt ile sınırlı
+            onSnapshot(query(
+                collection(db, "quiz_submissions"), 
+                orderBy("timestamp", "desc"),
+                limit(500)
+            ), (snap) => {
                 allSubmissions = snap.docs.map(d => {
                     const data = d.data();
                     // Tarih formatını düzenle
@@ -1361,7 +1460,7 @@
         }
         
         window.updateExamName = async (code, name) => {
-            await setDoc(getConfigRef(code), { custom_name: name }, { merge: true });
+            await setDoc(getConfigRef(code), { custom_name: sanitizeInput(name) }, { merge: true });
         }
         
         window.showExamQuestions = async (code) => {
@@ -1378,9 +1477,9 @@
                     questions.forEach((q, i) => {
                         content += `
                             <div class="mb-4 p-3 border rounded bg-gray-50">
-                                <p class="font-bold">Soru ${i+1}: ${q.question}</p>
+                                <p class="font-bold">Soru ${i+1}: ${sanitizeInput(q.question)}</p>
                                 <ul class="mt-2 ml-4">
-                                    ${q.options.map(opt => `<li class="${opt === q.answer ? 'text-green-600 font-bold' : ''}">${opt}</li>`).join('')}
+                                    ${q.options.map(opt => `<li class="${opt === q.answer ? 'text-green-600 font-bold' : ''}">${sanitizeInput(opt)}</li>`).join('')}
                                 </ul>
                                 ${q.image ? `<img src="${q.image}" class="mt-2 max-h-32 rounded border">` : ''}
                             </div>
