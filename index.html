@@ -760,45 +760,148 @@
 
         // --- GELİŞMİŞ SONUÇ EKRANI (Grafik ve sıralama eklendi) ---
       
- async function showResult(data) {
-            document.getElementById('app').className = 'app-card max-w-md';
-            document.getElementById('loginHeader').innerHTML = '<h1 class="text-2xl font-bold">Sınav Bitti</h1>';
-            let rankMsg = isDbConnected ? "Sıralama yükleniyor..." : "Çevrimdışı modda sıralama görülemez.";
-            let history = [];
+// --- ÇALIŞAN SONUÇ EKRANI (Senin kodun gibi) ---
+async function showResultScreen(data) {
+    document.getElementById('app').className = 'app-card max-w-4xl';
+    document.getElementById('loginHeader').innerHTML = '<h1 class="text-2xl font-bold">Sınav Tamamlandı</h1>';
+    
+    let rankInfo = "Sıralama yükleniyor...";
+    let allStudentResults = [];
 
-            if(isDbConnected) {
-                try {
-                    const q = query(collection(db, "quiz_submissions"), where("examCode", "==", data.examCode));
-                    const snap = await getDocs(q);
-                    const scores = snap.docs.map(d => parseFloat(d.data().score)).sort((a,b) => b-a);
-                    const rank = scores.indexOf(parseFloat(data.score)) + 1;
-                    rankMsg = `${scores.length} kişi arasından ${rank}. oldunuz.`;
-                    const hSnap = await getDocs(query(collection(db, "quiz_submissions"), where("number", "==", String(data.number))));
-                    history = hSnap.docs.map(d => d.data()).sort((a,b) => (a.timestamp?.seconds||0) - (b.timestamp?.seconds||0));
-                } catch(e) { rankMsg = "Sıralama alınamadı."; }
-            }
+    if(isDbConnected) {
+        try {
+            // 1. SIRALAMA HESAPLA (senin kodun gibi)
+            const currentExamQuery = query(collection(db, "quiz_submissions"), where("examCode", "==", data.examCode));
+            const currentExamSnap = await getDocs(currentExamQuery);
+            const scores = currentExamSnap.docs.map(d => parseFloat(d.data().score)).sort((a,b) => b-a);
+            const rank = scores.indexOf(parseFloat(data.score)) + 1;
+            rankInfo = `${rank}. sıra (${scores.length} kişi arasında)`;
 
-            document.getElementById('mainContentArea').innerHTML = `
-                <div class="text-center">
-                    <div class="text-4xl font-extrabold text-indigo-600 mb-2">${data.score}</div>
-                    <p class="text-gray-600 font-semibold mb-4">Puan</p>
-                    <div class="grid grid-cols-3 gap-2 text-sm mb-4">
-                        <div class="bg-green-100 p-2 rounded text-green-800">D: ${data.correct}</div>
-                        <div class="bg-red-100 p-2 rounded text-red-800">Y: ${data.incorrect}</div>
-                        <div class="bg-gray-100 p-2 rounded text-gray-800">B: ${data.empty}</div>
-                    </div>
-                    <div class="bg-yellow-50 p-3 rounded text-yellow-800 mb-4 font-medium">${rankMsg}</div>
-                    <canvas id="resChart" class="mb-4"></canvas>
-                    <button onclick="location.reload()" class="button bg-gray-800 text-white py-2 px-6 rounded">Çıkış</button>
-                </div>
-            `;
-            if(history.length > 0) {
-                new Chart(document.getElementById('resChart'), {
-                    type: 'line',
-                    data: { labels: history.map(h => h.examCode), datasets: [{ label: 'Puan', data: history.map(h => h.score), borderColor: '#4f46e5', tension: 0.1 }] }
-                });
-            }
+            // 2. TÜM SINAV GEÇMİŞİNİ AL (senin kodun gibi)
+            const historyQuery = query(collection(db, "quiz_submissions"), where("number", "==", String(data.number)));
+            const historySnap = await getDocs(historyQuery);
+            allStudentResults = historySnap.docs.map(d => {
+                const result = d.data();
+                return {
+                    examCode: result.examCode,
+                    score: parseFloat(result.score) || 0,
+                    timestamp: result.timestamp
+                };
+            }).sort((a,b) => (a.timestamp?.seconds||0) - (b.timestamp?.seconds||0));
+
+            console.log("Tüm sınav geçmişi:", allStudentResults);
+            
+        } catch(e) { 
+            console.error("Hata:", e);
+            rankInfo = "Sıralama alınamadı";
         }
+    }
+
+    document.getElementById('mainContentArea').innerHTML = `
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <div class="space-y-4">
+                <div class="text-center">
+                    <div class="inline-block p-4 rounded-full bg-indigo-100 mb-4">
+                        <svg xmlns="http://www.w3.org/2000/svg" class="h-12 w-12 text-indigo-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                        </svg>
+                    </div>
+                    <div class="text-5xl font-extrabold text-gray-800 mb-2">${data.score}</div>
+                    <p class="text-gray-500 font-medium mb-2">Puanınız</p>
+                    <div class="text-sm text-gray-600 bg-gray-100 p-2 rounded">${rankInfo}</div>
+                </div>
+                
+                <div class="grid grid-cols-3 gap-4 mb-4">
+                    <div class="bg-green-50 p-3 rounded-lg border border-green-100">
+                        <p class="text-2xl font-bold text-green-600">${data.correct}</p>
+                        <p class="text-xs text-green-800">Doğru</p>
+                    </div>
+                    <div class="bg-red-50 p-3 rounded-lg border border-red-100">
+                        <p class="text-2xl font-bold text-red-600">${data.incorrect}</p>
+                        <p class="text-xs text-red-800">Yanlış</p>
+                    </div>
+                    <div class="bg-gray-50 p-3 rounded-lg border border-gray-200">
+                        <p class="text-2xl font-bold text-gray-600">${data.empty}</p>
+                        <p class="text-xs text-gray-800">Boş</p>
+                    </div>
+                </div>
+                
+                <!-- SINAV GEÇMİŞİ -->
+                <div class="bg-white p-4 rounded-lg border shadow-sm">
+                    <h3 class="font-bold text-gray-700 mb-3">Sınav Geçmişi</h3>
+                    <div class="max-h-40 overflow-y-auto">
+                        <table class="w-full text-sm">
+                            <thead class="bg-gray-50 sticky top-0">
+                                <tr>
+                                    <th class="p-2 text-left text-xs">Sınav Kodu</th>
+                                    <th class="p-2 text-left text-xs">Puan</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                ${allStudentResults.map((exam, index) => `
+                                    <tr class="${exam.examCode === data.examCode ? 'bg-indigo-50' : 'hover:bg-gray-50'} border-b">
+                                        <td class="p-2 text-xs font-medium">${exam.examCode}</td>
+                                        <td class="p-2 text-xs font-bold ${exam.score >= 50 ? 'text-green-600' : 'text-red-600'}">${exam.score}</td>
+                                    </tr>
+                                `).join('')}
+                            </tbody>
+                        </table>
+                    </div>
+                    <p class="text-xs text-gray-500 mt-2">Toplam ${allStudentResults.length} sınav</p>
+                </div>
+            </div>
+            
+            <div class="bg-white p-4 rounded-lg border shadow-sm">
+                <h3 class="font-bold text-gray-700 mb-4">Gelişim Grafiği</h3>
+                <div class="h-64">
+                    <canvas id="progressChart"></canvas>
+                </div>
+            </div>
+        </div>
+        
+        <div class="mt-6 text-center">
+            <button onclick="location.reload()" class="button bg-gray-800 text-white py-3 px-6 rounded-lg font-bold hover:bg-gray-900">Çıkış Yap</button>
+        </div>
+    `;
+    
+    // GRAFİK OLUŞTUR
+    if (allStudentResults.length > 0) {
+        setTimeout(() => {
+            const ctx = document.getElementById('progressChart').getContext('2d');
+            new Chart(ctx, {
+                type: 'bar',
+                data: {
+                    labels: allStudentResults.map(r => r.examCode),
+                    datasets: [{
+                        label: 'Puan',
+                        data: allStudentResults.map(r => r.score),
+                        backgroundColor: allStudentResults.map(exam => 
+                            exam.examCode === data.examCode ? 'rgba(79, 70, 229, 0.8)' : 'rgba(79, 70, 229, 0.4)'
+                        ),
+                        borderColor: 'rgba(79, 70, 229, 1)',
+                        borderWidth: 1,
+                        borderRadius: 4,
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    scales: {
+                        y: {
+                            beginAtZero: true,
+                            max: 100,
+                            ticks: {
+                                callback: function(value) {
+                                    return value + ' puan';
+                                }
+                            }
+                        }
+                    }
+                }
+            });
+        }, 500);
+    }
+}
         // --- YÖNETİCİ MODÜLÜ ---
         function showTeacherLogin() {
             document.getElementById('mainContentArea').innerHTML = `
