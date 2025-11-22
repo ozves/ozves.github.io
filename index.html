@@ -1129,9 +1129,10 @@ async function showResultScreen(data) {
                 }
             };
 
-            // --- GELİŞMİŞ LİSTE YÜKLEME (AKILLI AYRIŞTIRICI - SON GÜNCELLEME) ---
+            // --- GELİŞMİŞ LİSTE YÜKLEME (AKILLI AYRIŞTIRICI - SON GÜVENİLİR VERSİYON) ---
             document.getElementById('btnUploadList').onclick = async () => {
                 const code = sanitizeExamCode(document.getElementById('uploadListCode').value);
+                // paste-area içindeki metni al (Sürükle bırak veya kopyala yapıştır ile gelen)
                 const txt = document.getElementById('listInput').innerText || document.getElementById('listInput').textContent;
                 
                 if(!code) return alert("Lütfen bir sınav kodu giriniz (Örn: 9A_MAT).");
@@ -1149,8 +1150,11 @@ async function showResultScreen(data) {
                     for (let i = 0; i < lines.length; i++) {
                         let line = lines[i].trim();
                         if (!line) continue;
-
-                        // Sınıf Tespiti
+                        
+                        // Garip kodları (OOG01001R020 gibi) temizle
+                        line = line.replace(/(\d{3,}[A-Z]{3,}\d{3,})$/, '').trim();
+                        
+                        // 1. SINIF TESPİTİ (Örn: AL - 9. Sınıf / A Şubesi)
                         const classMatch = line.match(/(\d+)\.\s*Sınıf\s*\/\s*([A-Z])/i);
                         if (classMatch) {
                             currentClass = classMatch[1] + classMatch[2]; 
@@ -1159,39 +1163,49 @@ async function showResultScreen(data) {
 
                         if (!currentClass) continue;
 
-                        // Öğrenci Tespiti
-                        const parts = line.split('\t'); 
-                        let num = null, name = null;
+                        // 2. ÖĞRENCİ TESPİTİ (GÜÇLÜ REGEX ile Adı ve Soyadı birlikte yakalanır)
+                        // Örnek Satır: 1 175 İBRAHİM EFE YILDIRIM Erkek
+                        const studentMatch = line.match(/^\s*\d+\s+(\d+)\s+(.+)\s+(Erkek|Kız)/i);
 
-                        // Yöntem A: Tab ile düzgün ayrılmış veri (Okul No: parts[1], Adı: parts[3], Soyadı: parts[7])
-                        if (parts.length >= 8 && parts[1] && parts[3] && parts[7]) { 
-                            const schoolNo = parts[1].trim();
-                            const firstName = parts[3].trim();
-                            const lastName = parts[7].trim(); 
-
-                            if (!isNaN(schoolNo) && firstName.length > 0 && lastName.length > 0) {
-                                num = schoolNo;
-                                name = `${firstName} ${lastName}`; 
+                        if (studentMatch) {
+                            const num = studentMatch[1].trim(); 
+                            const rawName = studentMatch[2].trim(); // Adı ve Soyadı birlikte gelir
+                            
+                            // Başlık satırlarını veya toplam satırlarını atla
+                            if (rawName.includes("Adı Soyadı Cinsiyeti") || line.includes("Öğrenci Sayısı")) {
+                                continue;
                             }
-                        }
 
-                        if (num && name && name.length > 2 && !name.includes("Öğrenci") && !name.includes("Baba")) {
-                            students.push({ number: num, className: currentClass, name: name });
+                            // --- GEÇERLİLİK KONTROLÜ VE EKLEME ---
+                            if (!isNaN(num) && rawName.length > 2) {
+                                students.push({ 
+                                    number: num, 
+                                    className: currentClass, 
+                                    name: rawName 
+                                });
+                            }
                         }
                     }
 
-                    if(students.length === 0) throw new Error("Listeden öğrenci çıkarılamadı.");
+                    if(students.length === 0) {
+                        throw new Error(`Listeden öğrenci çıkarılamadı. Toplam ${lines.length} satır işlendi, 0 öğrenci bulundu.\nKopyaladığınız listeye dikkat edin.`);
+                    }
                     
                     await setDoc(doc(db, "student_lists", code), { students });
+                    
                     const uniqueClasses = [...new Set(students.map(s => s.className))].join(", ");
-                    alert(`✅ BAŞARILI!\n${students.length} öğrenci eklendi.\nSınıflar: ${uniqueClasses}`);
+                    alert(`✅ BAŞARILI!\n\nToplam ${students.length} öğrenci eklendi.\nAlgılanan Sınıflar: ${uniqueClasses}`);
                     document.getElementById('listInput').innerText = '';
 
-                } catch(e) { alert("Hata: " + e.message); } 
-                finally { btn.innerText = "Listeyi Kaydet"; btn.disabled = false; }
+                } catch(e) { 
+                    alert("Hata: " + e.message); 
+                } finally {
+                    btn.innerText = "Listeyi Kaydet";
+                    btn.disabled = false;
+                }
             };
-
-            // --- SÜRÜKLE BIRAK İŞLEVSELLİĞİ (D&D) ---
+            
+            // --- SÜRÜKLE BIRAK İŞLEVSELLİĞİ (D&D) KODU ---
             const listInputArea = document.getElementById('listInput');
             // 1. Varsayılan davranışı engelle (Dosyanın indirilmesini önler)
             listInputArea.addEventListener('dragover', (e) => {
@@ -1212,7 +1226,7 @@ async function showResultScreen(data) {
                 }
             });
 
-            // 3. Dosya okuma fonksiyonu (XLSX kütüphanesini kullanır)
+            // 3. Dosya okuma fonksiyonu
             const readExcelFile = (file) => {
                 if (!file.name.endsWith('.xlsx') && !file.name.endsWith('.xls') && !file.name.endsWith('.csv')) {
                     alert('Lütfen bir Excel (.xlsx, .xls) veya CSV (.csv) dosyası sürükleyiniz.');
@@ -1221,11 +1235,13 @@ async function showResultScreen(data) {
                 const reader = new FileReader();
                 reader.onload = function(e) {
                     try {
+                        // **ÖNEMLİ:** XLSX kütüphanesinin çalıştığı varsayılır. (HTML başlığında olmalı)
                         const data = new Uint8Array(e.target.result);
                         const workbook = XLSX.read(data, { type: 'array' });
                         const firstSheetName = workbook.SheetNames[0];
                         const worksheet = workbook.Sheets[firstSheetName];
-                        const rawText = XLSX.utils.sheet_to_csv(worksheet, { FS: '\t' });
+                        // İçeriği metin olarak al (TSV - Tab Separated Values formatında)
+                        const rawText = XLSX.utils.sheet_to_csv(worksheet, { FS: ' ' }); // Tab yerine Boşluk kullanıldı
                         listInputArea.innerText = rawText;
                         alert('✅ Excel dosyasının içeriği başarıyla yüklendi. Şimdi "Listeyi Kaydet" butonuna basabilirsiniz.');
                     } catch (error) {
@@ -1239,7 +1255,7 @@ async function showResultScreen(data) {
 
             // Initial Load
             loadResults();
-        }
+        } // <-- showDashboard fonksiyonunun kapanış parantezi burada bitiyor
 
         // --- DASHBOARD YARDIMCILARI ---
         function loadResults() {
