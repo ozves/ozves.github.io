@@ -1386,7 +1386,71 @@ async function showResultScreen(data) {
 
        // --- GELİŞMİŞ SINAVLARIM SEKMESİ (GÜNCELLENMİŞ) ---
         async function loadMyExams() {
-            container.innerHTML = exams.map(exam => {
+            const container = document.getElementById('myExamsList');
+            // Yükleniyor animasyonu
+            container.innerHTML = `
+                <div class="col-span-1 md:col-span-2 lg:col-span-3 text-center py-10">
+                    <div class="loader mb-4"></div>
+                    <p class="font-bold text-gray-600">Sınavlar listeleniyor, lütfen bekleyin...</p>
+                </div>`;
+            
+            try {
+                // 1. VERİLERİ ÇEKME (Bu kısım çok önemli, silinmemeli)
+                const [configSnap, questionsSnap, listsSnap, submissionsSnap] = await Promise.all([
+                    getDocs(collection(db, "exam_settings")),
+                    getDocs(collection(db, "questions_pool")),
+                    getDocs(collection(db, "student_lists")),
+                    getDocs(collection(db, "quiz_submissions"))
+                ]);
+                
+                const exams = [];
+                const questionsData = {};
+                const studentLists = {};
+                const submissionCounts = {};
+                
+                // Veri haritalarını oluştur
+                questionsSnap.forEach(doc => {
+                    questionsData[doc.id] = doc.data().questions_list?.length || 0;
+                });
+                
+                listsSnap.forEach(doc => {
+                    studentLists[doc.id] = doc.data().students?.length || 0;
+                });
+                
+                submissionsSnap.forEach(doc => {
+                    const data = doc.data();
+                    const code = data.examCode;
+                    if (code) {
+                        if(!submissionCounts[code]) submissionCounts[code] = 0;
+                        submissionCounts[code]++;
+                    }
+                });
+                
+                // Ana sınav listesini derle
+                configSnap.forEach(doc => {
+                    if(doc.id !== 'admin_config') {
+                        const data = doc.data();
+                        exams.push({
+                            code: doc.id,
+                            teacher_name: data.teacher_name || systemPreparerName,
+                            time_limit: data.time_limit || 600,
+                            exam_description: data.exam_description || "",
+                            custom_name: data.custom_name || "",
+                            is_active: data.is_active, // Senin eklediğin özellik buraya da lazım
+                            question_count: questionsData[doc.id] || 0,
+                            student_count: studentLists[doc.id] || 0,
+                            submission_count: submissionCounts[doc.id] || 0
+                        });
+                    }
+                });
+                
+                if(exams.length === 0) {
+                    container.innerHTML = '<div class="col-span-full text-center text-gray-500 py-10 font-bold">Henüz oluşturulmuş bir sınav bulunmamaktadır.</div>';
+                    return;
+                }
+                
+                // 2. HTML OLUŞTURMA (Senin gönderdiğin ve düzenlediğin kısım burası)
+                container.innerHTML = exams.map(exam => {
                     // Aktiflik durumu kontrolü (Veritabanında yoksa varsayılan true kabul et)
                     const isActive = exam.is_active !== false; 
                     
@@ -1446,6 +1510,7 @@ async function showResultScreen(data) {
                         </button>
                     </div>
                 `}).join('');
+                
             } catch (error) {
                 console.error(error);
                 container.innerHTML = `<div class="col-span-full text-center text-red-500 py-10 font-bold">Veriler yüklenirken hata oluştu.<br><span class="text-sm font-normal">${error.message}</span></div>`;
