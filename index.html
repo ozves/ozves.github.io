@@ -1118,8 +1118,7 @@ async function showResultScreen(data) {
                 systemPreparerName = teacherName;
                 alert("Öğretmen adı güncellendi.");
             };
-
-            // --- ŞİFRE DEĞİŞTİRME ---
+// --- ŞİFRE DEĞİŞTİRME ---
             document.getElementById('btnChangePass').onclick = async () => {
                 const newP = document.getElementById('newAdminPass').value;
                 if(newP.length < 4) return alert("Şifre çok kısa.");
@@ -1130,112 +1129,71 @@ async function showResultScreen(data) {
                 }
             };
 
-           // --- GELİŞMİŞ LİSTE YÜKLEME (AKILLI AYRIŞTIRICI) ---
+            // --- GELİŞMİŞ LİSTE YÜKLEME (AKILLI AYRIŞTIRICI - BURASI YENİLENDİ) ---
             document.getElementById('btnUploadList').onclick = async () => {
                 const code = sanitizeExamCode(document.getElementById('uploadListCode').value);
-                // paste-area içindeki metni al
                 const txt = document.getElementById('listInput').innerText || document.getElementById('listInput').textContent;
                 
                 if(!code) return alert("Lütfen bir sınav kodu giriniz (Örn: 9A_MAT).");
                 if(!txt.trim()) return alert("Lütfen Excel'den kopyaladığınız listeyi yapıştırın.");
                 
                 const students = [];
-                const lines = txt.split('\n'); // Satır satır ayır
-                let currentClass = ""; // O anki sınıfı hafızada tutmak için
+                const lines = txt.split('\n');
+                let currentClass = "";
                 
-                // Butona geri bildirim ver
                 const btn = document.getElementById('btnUploadList');
-                const originalText = btn.innerText;
                 btn.innerText = "Ayrıştırılıyor...";
                 btn.disabled = true;
 
                 try {
-                    // --- AYRIŞTIRMA DÖNGÜSÜ ---
                     for (let i = 0; i < lines.length; i++) {
                         let line = lines[i].trim();
                         if (!line) continue;
 
-                        // 1. SINIF TESPİTİ
-                        // Excel listesinde "9. Sınıf / A Şubesi" gibi bir satır arar.
-                        // Regex mantığı: Sayı(9) + ". Sınıf / " + Harf(A)
+                        // Sınıf Tespiti (9. Sınıf / A Şubesi)
                         const classMatch = line.match(/(\d+)\.\s*Sınıf\s*\/\s*([A-Z])/i);
-                        
                         if (classMatch) {
-                            // Bulduğunda sınıfı birleştir (9 + A = "9A")
                             currentClass = classMatch[1] + classMatch[2]; 
-                            console.log("Sınıf Geçişi Algılandı:", currentClass);
-                            continue; // Bu satırı geç, bu satırda öğrenci yok
+                            console.log("Sınıf:", currentClass);
+                            continue;
                         }
 
-                        // 2. ÖĞRENCİ TESPİTİ
-                        // Sınıf belli değilse öğrenci ekleme (Başlık satırlarını atlar)
                         if (!currentClass) continue;
 
-                        // Excel'den kopyalanan satır genellikle TAB ile ayrılır.
-                        // Beklenen Format: [Sıra] [OkulNo] [Ad Soyad] ...
+                        // Öğrenci Tespiti
                         const parts = line.split('\t'); 
-                        
-                        let num = null;
-                        let name = null;
+                        let num = null, name = null;
 
-                        // --- Yöntem A: Tab ile düzgün ayrılmış veri ---
                         if (parts.length >= 3) {
-                            // Genellikle parts[1] Okul No, parts[2] İsimdir
-                            // Kontrol: parts[1] sayı mı? parts[2] yazı mı?
-                            if (!isNaN(parts[1]) && isNaN(parts[2])) {
-                                num = parts[1].trim();
-                                name = parts[2].trim();
-                            }
-                            // Bazen Sıra No kopyalanmazsa: parts[0]=No, parts[1]=İsim
-                            else if (!isNaN(parts[0]) && isNaN(parts[1])) {
-                                num = parts[0].trim();
-                                name = parts[1].trim();
-                            }
+                            if (!isNaN(parts[1]) && isNaN(parts[2])) { num = parts[1]; name = parts[2]; }
+                            else if (!isNaN(parts[0]) && isNaN(parts[1])) { num = parts[0]; name = parts[1]; }
                         }
                         
-                        // --- Yöntem B: Tab yoksa (Boşluklu veri) Regex ile kurtar ---
                         if (!num || !name) {
-                            // Regex: Satır başı -> Sayı(Sıra) -> Boşluk -> Sayı(OkulNo) -> Boşluk -> İsim
                             const match = line.match(/^\s*\d+\s+(\d+)\s+([^\t\d]+)/);
-                            if (match) {
-                                num = match[1];
-                                name = match[2].trim();
-                            }
+                            if (match) { num = match[1]; name = match[2]; }
                         }
 
-                        // --- GEÇERLİLİK KONTROLÜ VE EKLEME ---
-                        // İsim en az 3 harfli olmalı ve "Öğrenci No" başlığı olmamalı
                         if (num && name && name.length > 2 && !name.includes("Öğrenci") && !name.includes("Baba")) {
-                            // Baba adını temizle (İsim sütununa bazen baba adı da karışabilir, basitçe ilk iki kelimeyi veya uzun kısmı alabiliriz ama şimdilik ham alalım)
-                            
-                            // Listeye ekle
-                            students.push({ 
-                                number: num, 
-                                className: currentClass, 
-                                name: name 
-                            });
+                            students.push({ number: num.trim(), className: currentClass, name: name.trim() });
                         }
                     }
 
-                    if(students.length === 0) {
-                        throw new Error("Listeden öğrenci çıkarılamadı.\nExcel'den 'Sınıf / Şube' satırını da içerecek şekilde kopyaladığınızdan emin olun.");
-                    }
+                    if(students.length === 0) throw new Error("Listeden öğrenci çıkarılamadı.");
                     
-                    // Veritabanına Kaydet
                     await setDoc(doc(db, "student_lists", code), { students });
-                    
-                    // Başarılı Mesajı
                     const uniqueClasses = [...new Set(students.map(s => s.className))].join(", ");
-                    alert(`✅ BAŞARILI!\n\nToplam ${students.length} öğrenci eklendi.\nAlgılanan Sınıflar: ${uniqueClasses}`);
-                    document.getElementById('listInput').innerText = ''; // Temizle
+                    alert(`✅ BAŞARILI!\n${students.length} öğrenci eklendi.\nSınıflar: ${uniqueClasses}`);
+                    document.getElementById('listInput').innerText = '';
 
-                } catch(e) {
-                    alert("Hata: " + e.message);
-                } finally {
-                    btn.innerText = "Listeyi Kaydet";
-                    btn.disabled = false;
-                }
+                } catch(e) { alert("Hata: " + e.message); } 
+                finally { btn.innerText = "Listeyi Kaydet"; btn.disabled = false; }
             };
+            
+            // Initial Load
+            loadResults();
+        }
+
         // --- DASHBOARD YARDIMCILARI ---
         function loadResults() {
             const tbody = document.getElementById('resultsTableBody');
@@ -1983,3 +1941,6 @@ async function showResultScreen(data) {
     </script>
 </body>
 </html>
+
+
+
