@@ -319,7 +319,26 @@
 
             typingTimer = setTimeout(async () => {
                 const success = await fetchExamData(code);
+                // --- 1. ADIM: BURAYI YAPIŞTIRIN (handleCodeEntry içine) ---
                 
+                // Sınavın aktiflik durumunu kontrol et (Varsayılan: true)
+                const isExamActive = currentExamConfig.is_active !== false; 
+
+                if (success && !isExamActive) {
+                    infoArea.innerHTML = `
+                        <div class="bg-red-100 border-l-4 border-red-500 text-red-700 p-4 rounded shadow-md" role="alert">
+                            <p class="font-bold text-lg">⛔ Sınav Erişimi Kapalı</p>
+                            <p>Bu sınav şu anda oturuma kapalıdır. Süre dolmuş veya sınav henüz başlatılmamış olabilir.</p>
+                            <p class="text-xs mt-2 font-semibold">Lütfen öğretmeninizle iletişime geçiniz.</p>
+                        </div>
+                    `;
+                    infoArea.classList.remove('hidden');
+                    loginFields.innerHTML = ''; // Giriş alanlarını temizle
+                    btn.disabled = true;
+                    btn.classList.add('opacity-50', 'cursor-not-allowed');
+                    return; // İşlemi durdur
+                }
+                // --- 1. ADIM BİTİŞ ---
                 // Sınav Bilgisi Göster
                 const mins = Math.floor(currentExamConfig.time_limit / 60);
                 infoArea.innerHTML = `
@@ -1367,89 +1386,41 @@ async function showResultScreen(data) {
 
        // --- GELİŞMİŞ SINAVLARIM SEKMESİ (GÜNCELLENMİŞ) ---
         async function loadMyExams() {
-            const container = document.getElementById('myExamsList');
-            // Yükleniyor animasyonu
-            container.innerHTML = `
-                <div class="col-span-1 md:col-span-2 lg:col-span-3 text-center py-10">
-                    <div class="loader mb-4"></div>
-                    <p class="font-bold text-gray-600">Sınavlar listeleniyor, lütfen bekleyin...</p>
-                </div>`;
-            
-            try {
-                // Tüm gerekli verileri paralel olarak çekiyoruz
-                const [configSnap, questionsSnap, listsSnap, submissionsSnap] = await Promise.all([
-                    getDocs(collection(db, "exam_settings")),
-                    getDocs(collection(db, "questions_pool")),
-                    getDocs(collection(db, "student_lists")),
-                    getDocs(collection(db, "quiz_submissions"))
-                ]);
-                
-                const exams = [];
-                const questionsData = {};
-                const studentLists = {};
-                const submissionCounts = {};
-                
-                // Veri haritalarını oluştur
-                questionsSnap.forEach(doc => {
-                    questionsData[doc.id] = doc.data().questions_list?.length || 0;
-                });
-                
-                listsSnap.forEach(doc => {
-                    studentLists[doc.id] = doc.data().students?.length || 0;
-                });
-                
-                submissionsSnap.forEach(doc => {
-                    const data = doc.data();
-                    const code = data.examCode;
-                    if (code) {
-                        if(!submissionCounts[code]) submissionCounts[code] = 0;
-                        submissionCounts[code]++;
-                    }
-                });
-                
-                // Ana sınav listesini derle
-                configSnap.forEach(doc => {
-                    if(doc.id !== 'admin_config') {
-                        const data = doc.data();
-                        exams.push({
-                            code: doc.id,
-                            teacher_name: data.teacher_name || systemPreparerName,
-                            time_limit: data.time_limit || 600,
-                            exam_description: data.exam_description || "",
-                            custom_name: data.custom_name || "",
-                            question_count: questionsData[doc.id] || 0,
-                            student_count: studentLists[doc.id] || 0,
-                            submission_count: submissionCounts[doc.id] || 0
-                        });
-                    }
-                });
-                
-                if(exams.length === 0) {
-                    container.innerHTML = '<div class="col-span-full text-center text-gray-500 py-10 font-bold">Henüz oluşturulmuş bir sınav bulunmamaktadır.</div>';
-                    return;
-                }
-                
-                // HTML Şablonu (İstediğiniz görsele uygun)
-                container.innerHTML = exams.map(exam => `
-                    <div class="bg-white p-6 border rounded-xl shadow-sm hover:shadow-md transition-all relative flex flex-col">
+            container.innerHTML = exams.map(exam => {
+                    // Aktiflik durumu kontrolü (Veritabanında yoksa varsayılan true kabul et)
+                    const isActive = exam.is_active !== false; 
+                    
+                    return `
+                    <div class="bg-white p-6 border rounded-xl shadow-sm hover:shadow-md transition-all relative flex flex-col ${isActive ? 'border-l-4 border-l-green-500' : 'border-l-4 border-l-red-500 bg-gray-50'}">
                         <div class="flex justify-between items-start mb-4">
                             <div>
-                                <h3 class="font-extrabold text-xl text-indigo-700 tracking-tight">${exam.code}</h3>
+                                <div class="flex items-center gap-2">
+                                    <h3 class="font-extrabold text-xl text-indigo-700 tracking-tight">${exam.code}</h3>
+                                    ${!isActive ? '<span class="px-2 py-0.5 rounded text-[10px] font-bold bg-red-100 text-red-600 border border-red-200">KAPALI</span>' : '<span class="px-2 py-0.5 rounded text-[10px] font-bold bg-green-100 text-green-600 border border-green-200">AKTİF</span>'}
+                                </div>
                                 <p class="text-sm text-gray-500 italic mt-1">${exam.exam_description || 'Açıklama girilmemiş.'}</p>
                             </div>
-                            <input type="text" 
-                                   class="text-xs p-2 border rounded-lg w-32 text-right placeholder-gray-400 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-200 outline-none transition-all" 
+                            
+                            <button onclick="window.toggleExamStatus('${exam.code}', ${isActive})" 
+                                class="text-xs font-bold px-3 py-1 rounded-full transition-colors shadow-sm border ${isActive ? 'bg-red-50 text-red-600 border-red-200 hover:bg-red-100' : 'bg-green-50 text-green-600 border-green-200 hover:bg-green-100'}">
+                                ${isActive ? '⛔ Erişimi Kapat' : '✅ Erişimi Aç'}
+                            </button>
+                        </div>
+                        
+                        <div class="space-y-3 text-sm flex-grow ${!isActive ? 'opacity-60 grayscale-[50%]' : ''}">
+                            <div class="flex items-center justify-between py-1 border-b border-gray-50">
+                                <span class="text-gray-600 font-medium w-1/3">Özel İsim:</span>
+                                <input type="text" 
+                                   class="text-xs p-1 border rounded w-32 text-right focus:border-indigo-500 outline-none" 
                                    placeholder="Özel sınav adı" 
                                    value="${exam.custom_name || ''}"
                                    onchange="window.updateExamName('${exam.code}', this.value)">
-                        </div>
-                        
-                        <div class="space-y-3 text-sm flex-grow">
+                            </div>
                             <div class="flex items-center justify-between py-1 border-b border-gray-50">
                                 <span class="text-gray-600 font-medium w-1/3">Hazırlayan:</span>
                                 <div class="flex-1 flex space-x-2">
-                                    <input id="teacherName-${exam.code}" type="text" value="${exam.teacher_name}" class="p-1 px-2 border rounded text-sm flex-1 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-200 outline-none transition-all">
-                                    <button onclick="window.updateExamTeacher('${exam.code}')" class="bg-green-500 text-white px-3 py-1 rounded-md text-xs font-bold hover:bg-green-600 transition shadow-sm flex items-center">💾 Kaydet</button>
+                                    <input id="teacherName-${exam.code}" type="text" value="${exam.teacher_name}" class="p-1 px-2 border rounded text-sm flex-1 outline-none">
+                                    <button onclick="window.updateExamTeacher('${exam.code}')" class="bg-green-500 text-white px-2 rounded text-xs hover:bg-green-600">💾</button>
                                 </div>
                             </div>
                             <div class="flex justify-between py-1 border-b border-gray-50">
@@ -1458,29 +1429,23 @@ async function showResultScreen(data) {
                             </div>
                             <div class="flex justify-between items-center py-1 border-b border-gray-50">
                                 <span class="text-gray-600 font-medium">Soru Sayısı:</span>
-                                <button onclick="window.showExamQuestions('${exam.code}')" class="text-blue-600 hover:text-blue-800 font-bold text-lg transition-colors flex items-center">
-                                    ${exam.question_count} 
-                                    <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 ml-1 opacity-50" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" /></svg>
-                                </button>
+                                <button onclick="window.showExamQuestions('${exam.code}')" class="text-blue-600 font-bold hover:underline">${exam.question_count} Soru</button>
                             </div>
                             <div class="flex justify-between items-center py-1 border-b border-gray-50">
                                 <span class="text-gray-600 font-medium">Öğrenci Sayısı:</span>
-                                <button onclick="window.showExamStudents('${exam.code}')" class="text-blue-600 hover:text-blue-800 font-bold text-lg transition-colors flex items-center">
-                                    ${exam.student_count}
-                                    <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 ml-1 opacity-50" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" /></svg>
-                                </button>
+                                <button onclick="window.showExamStudents('${exam.code}')" class="text-blue-600 font-bold hover:underline">${exam.student_count} Öğrenci</button>
                             </div>
-                            <div class="flex justify-between py-1">
+                             <div class="flex justify-between py-1">
                                 <span class="text-gray-600 font-medium">Katılım:</span>
                                 <span class="font-bold text-lg text-gray-800">${exam.submission_count}</span>
                             </div>
                         </div>
-                        <button onclick="window.deleteExam('${exam.code}')" class="mt-6 w-full bg-red-50 text-red-600 text-xs py-3 rounded-lg font-bold hover:bg-red-100 transition border border-red-100 flex items-center justify-center">
-                            <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
-                            Bu Sınavı Sil
+                        
+                        <button onclick="window.deleteExam('${exam.code}')" class="mt-4 w-full bg-white text-gray-400 text-xs py-2 rounded border hover:bg-red-50 hover:text-red-500 transition">
+                            Sınavı Tamamen Sil
                         </button>
                     </div>
-                `).join('');
+                `}).join('');
             } catch (error) {
                 console.error(error);
                 container.innerHTML = `<div class="col-span-full text-center text-red-500 py-10 font-bold">Veriler yüklenirken hata oluştu.<br><span class="text-sm font-normal">${error.message}</span></div>`;
@@ -1834,6 +1799,25 @@ async function showResultScreen(data) {
                     alert("Silme işlemi sırasında hata oluştu: " + e.message);
                     btn.innerText = "Bu Sınavı Sil"; btn.disabled = false;
                 }
+            }
+        }
+
+        // --- YENİ ÖZELLİK: SINAVI AKTİF/PASİF YAPMA ---
+        window.toggleExamStatus = async (code, currentStatus) => {
+            const newStatus = !currentStatus; // Durumu tersine çevir
+            const btn = document.activeElement;
+            const originalText = btn.innerText;
+            
+            btn.innerText = "Wait...";
+            btn.disabled = true;
+
+            try {
+                await setDoc(getConfigRef(code), { is_active: newStatus }, { merge: true });
+                await loadMyExams(); // Listeyi yenile
+            } catch (e) {
+                alert("Hata: " + e.message);
+                btn.innerText = originalText;
+                btn.disabled = false;
             }
         }
         // --- TEK TEK DÜZENLEME BİTİŞ ---
