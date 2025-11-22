@@ -1129,7 +1129,7 @@ async function showResultScreen(data) {
                 }
             };
 
-            // --- GELİŞMİŞ LİSTE YÜKLEME (AKILLI AYRIŞTIRICI - BURASI YENİLENDİ) ---
+            // --- GELİŞMİŞ LİSTE YÜKLEME (AKILLI AYRIŞTIRICI - SON GÜNCELLEME) ---
             document.getElementById('btnUploadList').onclick = async () => {
                 const code = sanitizeExamCode(document.getElementById('uploadListCode').value);
                 const txt = document.getElementById('listInput').innerText || document.getElementById('listInput').textContent;
@@ -1150,11 +1150,10 @@ async function showResultScreen(data) {
                         let line = lines[i].trim();
                         if (!line) continue;
 
-                        // Sınıf Tespiti (9. Sınıf / A Şubesi)
+                        // Sınıf Tespiti
                         const classMatch = line.match(/(\d+)\.\s*Sınıf\s*\/\s*([A-Z])/i);
                         if (classMatch) {
                             currentClass = classMatch[1] + classMatch[2]; 
-                            console.log("Sınıf:", currentClass);
                             continue;
                         }
 
@@ -1164,18 +1163,20 @@ async function showResultScreen(data) {
                         const parts = line.split('\t'); 
                         let num = null, name = null;
 
-                        if (parts.length >= 3) {
-                            if (!isNaN(parts[1]) && isNaN(parts[2])) { num = parts[1]; name = parts[2]; }
-                            else if (!isNaN(parts[0]) && isNaN(parts[1])) { num = parts[0]; name = parts[1]; }
-                        }
-                        
-                        if (!num || !name) {
-                            const match = line.match(/^\s*\d+\s+(\d+)\s+([^\t\d]+)/);
-                            if (match) { num = match[1]; name = match[2]; }
+                        // Yöntem A: Tab ile düzgün ayrılmış veri (Okul No: parts[1], Adı: parts[3], Soyadı: parts[7])
+                        if (parts.length >= 8 && parts[1] && parts[3] && parts[7]) { 
+                            const schoolNo = parts[1].trim();
+                            const firstName = parts[3].trim();
+                            const lastName = parts[7].trim(); 
+
+                            if (!isNaN(schoolNo) && firstName.length > 0 && lastName.length > 0) {
+                                num = schoolNo;
+                                name = `${firstName} ${lastName}`; 
+                            }
                         }
 
                         if (num && name && name.length > 2 && !name.includes("Öğrenci") && !name.includes("Baba")) {
-                            students.push({ number: num.trim(), className: currentClass, name: name.trim() });
+                            students.push({ number: num, className: currentClass, name: name });
                         }
                     }
 
@@ -1189,7 +1190,53 @@ async function showResultScreen(data) {
                 } catch(e) { alert("Hata: " + e.message); } 
                 finally { btn.innerText = "Listeyi Kaydet"; btn.disabled = false; }
             };
-            
+
+            // --- SÜRÜKLE BIRAK İŞLEVSELLİĞİ (D&D) ---
+            const listInputArea = document.getElementById('listInput');
+            // 1. Varsayılan davranışı engelle (Dosyanın indirilmesini önler)
+            listInputArea.addEventListener('dragover', (e) => {
+                e.preventDefault(); 
+                listInputArea.classList.add('border-indigo-500', 'bg-indigo-50');
+            });
+            listInputArea.addEventListener('dragleave', (e) => {
+                e.preventDefault();
+                listInputArea.classList.remove('border-indigo-500', 'bg-indigo-50'); 
+            });
+            // 2. Dosya bırakıldığında içeriği oku
+            listInputArea.addEventListener('drop', (e) => {
+                e.preventDefault();
+                listInputArea.classList.remove('border-indigo-500', 'bg-indigo-50'); 
+                const files = e.dataTransfer.files;
+                if (files.length > 0) {
+                    readExcelFile(files[0]);
+                }
+            });
+
+            // 3. Dosya okuma fonksiyonu (XLSX kütüphanesini kullanır)
+            const readExcelFile = (file) => {
+                if (!file.name.endsWith('.xlsx') && !file.name.endsWith('.xls') && !file.name.endsWith('.csv')) {
+                    alert('Lütfen bir Excel (.xlsx, .xls) veya CSV (.csv) dosyası sürükleyiniz.');
+                    return;
+                }
+                const reader = new FileReader();
+                reader.onload = function(e) {
+                    try {
+                        const data = new Uint8Array(e.target.result);
+                        const workbook = XLSX.read(data, { type: 'array' });
+                        const firstSheetName = workbook.SheetNames[0];
+                        const worksheet = workbook.Sheets[firstSheetName];
+                        const rawText = XLSX.utils.sheet_to_csv(worksheet, { FS: '\t' });
+                        listInputArea.innerText = rawText;
+                        alert('✅ Excel dosyasının içeriği başarıyla yüklendi. Şimdi "Listeyi Kaydet" butonuna basabilirsiniz.');
+                    } catch (error) {
+                        alert('Dosya okuma hatası: ' + error.message);
+                        console.error(error);
+                    }
+                };
+                reader.readAsArrayBuffer(file);
+            };
+
+
             // Initial Load
             loadResults();
         }
