@@ -812,7 +812,26 @@
                     <button onclick="downloadSimplePDF()" class="bg-red-500 hover:bg-red-600 text-white px-4 py-2 rounded-lg font-bold flex items-center gap-2 transition-colors">📄 PDF İndir (Gelişmiş)</button>
                     ${!window.isAdminViewingResult ? '<button id="refreshStudentBtn" onclick="window.refreshStudentResult()" class="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-lg font-bold flex items-center gap-2 transition-colors">🔄 Verileri Güncelle</button>' : ''}
                 </div>
-                <div class="bg-white p-4 rounded-xl shadow-sm border mb-6"><h3 class="font-bold text-gray-700 mb-3 flex items-center gap-2"><span>🏆 Kazanılan Rozetler</span><span class="bg-yellow-500 text-white text-xs px-2 py-1 rounded-full">${badges.length}</span></h3><div class="flex flex-wrap gap-2">${badges.length > 0 ? badges.map(badge => `<span class="${badge.color} px-3 py-2 rounded-full text-sm font-medium flex items-center gap-2 shadow-sm">${badge.icon} ${badge.name}</span>`).join('') : '<div class="text-center text-gray-500 py-4"><span class="text-2xl">🎯</span><p class="mt-2">Henüz rozet kazanılmadı</p></div>'}</div></div>
+                <div class="bg-white p-4 rounded-xl shadow-sm border mb-6">
+    <h3 class="font-bold text-gray-700 mb-3 flex items-center gap-2">
+        <span>🏆 Kazanılan Rozetler</span>
+        <span class="bg-yellow-500 text-white text-xs px-2 py-1 rounded-full">${badges.length}</span>
+    </h3>
+    <div class="flex flex-wrap gap-3">
+        ${badges.length > 0 ? badges.map(badge => `
+            <div class="group relative flex justify-center">
+                <span class="${badge.color} px-3 py-2 rounded-full text-sm font-medium flex items-center gap-2 shadow-sm cursor-help transition-transform hover:scale-105">
+                    ${badge.icon} ${badge.name}
+                </span>
+                
+                <div class="absolute bottom-full mb-2 w-48 p-2 bg-gray-800 text-white text-xs rounded-lg shadow-xl opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all duration-200 z-50 text-center pointer-events-none">
+                    ${badge.desc}
+                    <div class="absolute top-100 left-1/2 -translate-x-1/2 -mt-1 border-4 border-transparent border-t-gray-800"></div>
+                </div>
+            </div>
+        `).join('') : '<div class="text-center text-gray-500 py-4 w-full"><span class="text-2xl">🎯</span><p class="mt-2">Henüz rozet kazanılmadı</p></div>'}
+    </div>
+</div>
                 <div class="bg-white p-4 rounded-xl shadow-sm border mb-6"><h3 class="font-bold text-gray-700 mb-3 flex items-center gap-2">🏆 Liderlik Tablosu (İlk 10)</h3><div class="overflow-x-auto"><table class="w-full text-sm"><thead class="bg-indigo-50 text-indigo-900"><tr><th class="p-2 text-center">Sıra</th><th class="p-2 text-left">Ad Soyad</th><th class="p-2 text-center">Sınıf</th><th class="p-2 text-center">Süre</th><th class="p-2 text-right">Puan</th></tr></thead><tbody class="divide-y">${top10.map((st, index) => { const isMe = st.number === studentResult.number; const mins = Math.floor((st.timeSpent || 0) / 60); const secs = (st.timeSpent || 0) % 60; return `<tr class="${isMe ? 'bg-yellow-50 border-l-4 border-yellow-400' : ''}"><td class="p-2 text-center font-bold text-gray-500">${index + 1}</td><td class="p-2 font-medium">${isMe ? '👉 ' + st.name : st.name}</td><td class="p-2 text-center text-xs text-gray-500">${st.className}</td><td class="p-2 text-center text-xs font-mono">${mins}dk ${secs}sn</td><td class="p-2 text-right font-bold text-indigo-600">${st.score}</td></tr>`; }).join('')}</tbody></table></div></div>
                 <div class="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6"><div class="bg-indigo-50 p-4 rounded-xl border border-indigo-100 flex flex-col items-center justify-center"><span class="text-sm text-indigo-600 font-bold mb-1">PUANINIZ</span><span class="text-4xl font-extrabold text-indigo-800">${studentResult.score}</span></div><div class="bg-orange-50 p-4 rounded-xl border border-orange-100 flex flex-col items-center justify-center relative overflow-hidden"><span class="text-sm text-orange-600 font-bold mb-1">GENEL SIRALAMA</span><div class="flex items-baseline gap-1"><span class="text-4xl font-extrabold text-orange-800">${myRank}</span><span class="text-sm text-gray-500 font-bold">/ ${totalStudents}</span></div></div><div class="bg-green-50 p-4 rounded-xl border border-green-100 flex flex-col items-center justify-center"><span class="text-sm text-green-600 font-bold mb-1">NET DURUMU</span><div class="text-sm font-bold text-gray-700"><span class="text-green-600">${studentResult.correct} D</span> - <span class="text-red-600">${studentResult.incorrect} Y</span> - <span class="text-gray-500">${studentResult.empty} B</span></div></div><div class="bg-blue-50 p-4 rounded-xl border border-blue-100 flex flex-col items-center justify-center"><span class="text-sm text-blue-600 font-bold mb-1">OKUL ORTALAMASI</span><span class="text-4xl font-extrabold text-blue-800">${(allData.reduce((acc, curr) => acc + parseFloat(curr.score), 0) / totalStudents).toFixed(2)}</span></div></div>
                 <div class="grid grid-cols-1 lg:grid-cols-2 gap-6"><div class="bg-white p-4 rounded-xl shadow-sm border"><h3 class="font-bold text-gray-700 mb-4 flex items-center gap-2"><span>🏆 Sınıf Başarı Ortalamaları</span></h3><div class="overflow-x-auto"><table class="w-full text-sm"><thead class="bg-gray-100"><tr><th class="p-2 text-left">Sınıf</th><th class="p-2 text-center">Öğrenci Sayısı</th><th class="p-2 text-right">Ortalama Puan</th></tr></thead><tbody class="divide-y">${classAverages.map(c => `<tr class="${c.className === studentResult.className ? 'bg-indigo-50' : ''}"><td class="p-2 font-bold text-gray-700">${c.className} ${c.className === studentResult.className ? '(Sınıfın)' : ''}</td><td class="p-2 text-center text-gray-600">${c.count}</td><td class="p-2 text-right font-mono font-bold text-indigo-600">${c.avg}</td></tr>`).join('')}</tbody></table></div></div><div class="bg-white p-4 rounded-xl shadow-sm border flex flex-col"><h3 class="font-bold text-gray-700 mb-4">📈 Gelişim Grafiğin</h3><div class="flex-grow min-h-[250px]"><canvas id="studentProgressChart"></canvas></div></div></div>`;
@@ -879,17 +898,94 @@
             }
         };
 
-        function calculateBadges(studentResult, rank, totalStudents, historyData) {
-            const badges = []; const score = parseFloat(studentResult.score || 0); const correct = parseInt(studentResult.correct || 0, 10); const incorrect = parseInt(studentResult.incorrect || 0, 10);
-            if (score >= 90) badges.push({ name: "Sınav Şampiyonu", icon: "🏆", color: "bg-yellow-100 text-yellow-800 border border-yellow-200" });
-            else if (score >= 80) badges.push({ name: "Mükemmel Başarı", icon: "⭐", color: "bg-purple-100 text-purple-800 border border-purple-200" });
-            else if (score >= 70) badges.push({ name: "Başarılı Öğrenci", icon: "👍", color: "bg-blue-100 text-blue-800 border border-blue-200" });
-            if (rank <= 3) badges.push({ name: "İlk 3", icon: "👑", color: "bg-red-100 text-red-800 border border-red-200" });
-            else if (rank <= 10) badges.push({ name: "İlk 10", icon: "💎", color: "bg-green-100 text-green-800 border border-green-200" });
-            if (correct >= 18) badges.push({ name: "Doğru Ustası", icon: "✅", color: "bg-emerald-100 text-emerald-800 border border-emerald-200" });
-            if (incorrect <= 2) badges.push({ name: "İsabet Ustası", icon: "🎯", color: "bg-indigo-100 text-indigo-800 border border-indigo-200" });
-            if (Array.isArray(historyData) && historyData.length >= 2) { const lastScore = parseFloat(historyData[historyData.length - 2].score || 0); if (score > lastScore) badges.push({ name: "Gelişim Gösterdi", icon: "📈", color: "bg-cyan-100 text-cyan-800 border border-cyan-200" }); }
-            if (Array.isArray(historyData) && historyData.length === 1) badges.push({ name: "İlk Sınav", icon: "🎪", color: "bg-pink-100 text-pink-800 border border-pink-200" });
+       function calculateBadges(studentResult, rank, totalStudents, historyData) {
+            const badges = []; 
+            const score = parseFloat(studentResult.score || 0); 
+            const correct = parseInt(studentResult.correct || 0, 10); 
+            const incorrect = parseInt(studentResult.incorrect || 0, 10);
+
+            // 1. Puan Bazlı Rozetler
+            if (score >= 90) {
+                badges.push({ 
+                    name: "Sınav Şampiyonu", 
+                    icon: "🏆", 
+                    color: "bg-yellow-100 text-yellow-800 border border-yellow-200",
+                    desc: "Bu sınavdan 90 ve üzeri puan alarak şampiyonlar ligine girdin!" 
+                });
+            } else if (score >= 80) {
+                badges.push({ 
+                    name: "Mükemmel Başarı", 
+                    icon: "⭐", 
+                    color: "bg-purple-100 text-purple-800 border border-purple-200",
+                    desc: "80 puan barajını geçerek harika bir performans sergiledin." 
+                });
+            } else if (score >= 70) {
+                badges.push({ 
+                    name: "Başarılı Öğrenci", 
+                    icon: "👍", 
+                    color: "bg-blue-100 text-blue-800 border border-blue-200",
+                    desc: "70 puanın üzerinde not alarak başarını kanıtladın." 
+                });
+            }
+
+            // 2. Sıralama Bazlı Rozetler
+            if (rank <= 3) {
+                badges.push({ 
+                    name: "İlk 3", 
+                    icon: "👑", 
+                    color: "bg-red-100 text-red-800 border border-red-200",
+                    desc: "Sınıfındaki tüm arkadaşların arasında ilk 3'e girdin!" 
+                });
+            } else if (rank <= 10) {
+                badges.push({ 
+                    name: "İlk 10", 
+                    icon: "💎", 
+                    color: "bg-green-100 text-green-800 border border-green-200",
+                    desc: "Sıralamada en iyi 10 öğrenci arasında yer alıyorsun." 
+                });
+            }
+
+            // 3. Doğru/Yanlış Performansı
+            if (correct >= 18) {
+                badges.push({ 
+                    name: "Doğru Ustası", 
+                    icon: "✅", 
+                    color: "bg-emerald-100 text-emerald-800 border border-emerald-200",
+                    desc: "Sınavda 18 veya daha fazla soruyu doğru cevapladın." 
+                });
+            }
+            if (incorrect <= 2) {
+                badges.push({ 
+                    name: "İsabet Ustası", 
+                    icon: "🎯", 
+                    color: "bg-indigo-100 text-indigo-800 border border-indigo-200",
+                    desc: "Çok dikkatliydin! 2 veya daha az yanlış yaptın." 
+                });
+            }
+
+            // 4. Geçmiş Karşılaştırması
+            if (Array.isArray(historyData) && historyData.length >= 2) { 
+                const lastScore = parseFloat(historyData[historyData.length - 2].score || 0); 
+                if (score > lastScore) {
+                    badges.push({ 
+                        name: "Gelişim Gösterdi", 
+                        icon: "📈", 
+                        color: "bg-cyan-100 text-cyan-800 border border-cyan-200",
+                        desc: "Bir önceki sınavına göre puanını yükselttin. İlerlemeye devam!" 
+                    });
+                }
+            }
+            
+            // 5. İlk Sınav Rozeti
+            if (Array.isArray(historyData) && historyData.length === 1) {
+                badges.push({ 
+                    name: "İlk Sınav", 
+                    icon: "🎪", 
+                    color: "bg-pink-100 text-pink-800 border border-pink-200",
+                    desc: "Sistemdeki ilk sınavını başarıyla tamamladın." 
+                });
+            }
+            
             return badges;
         }
 
@@ -1109,4 +1205,7 @@
     </script>
 </body>
 </html>
+
+
+
 
