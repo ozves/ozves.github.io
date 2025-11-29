@@ -807,10 +807,16 @@
                 const badges = calculateBadges(studentResult, myRank, totalStudents, historyData);
                 const top10 = allData.sort((a, b) => { const scoreDiff = parseFloat(b.score) - parseFloat(a.score); return scoreDiff !== 0 ? scoreDiff : (a.timeSpent || 99999) - (b.timeSpent || 99999); }).slice(0, 10);
 
-                let htmlContent = `
-                <div class='flex justify-center gap-3 mb-6 flex-wrap'>
-                    <button onclick="downloadSimplePDF()" class="bg-red-500 hover:bg-red-600 text-white px-4 py-2 rounded-lg font-bold flex items-center gap-2 transition-colors">📄 PDF İndir (Gelişmiş)</button>
-                    ${!window.isAdminViewingResult ? '<button id="refreshStudentBtn" onclick="window.refreshStudentResult()" class="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-lg font-bold flex items-center gap-2 transition-colors">🔄 Verileri Güncelle</button>' : ''}
+               let htmlContent = `
+                <div class='flex justify-center gap-4 mb-8 flex-wrap'>
+                    <button onclick="downloadSimplePDF()" class="bg-gradient-to-r from-red-500 to-red-600 hover:from-red-600 hover:to-red-700 text-white px-6 py-3 rounded-xl font-bold flex items-center gap-2 transition-all transform hover:scale-105 hover:shadow-xl active:scale-95 border-b-4 border-red-800">
+                        <span class="text-xl">📄</span> PDF İndir (Gelişmiş)
+                    </button>
+
+                    ${!window.isAdminViewingResult ? 
+                    `<button id="refreshStudentBtn" onclick="window.refreshStudentResult()" class="bg-gradient-to-r from-indigo-600 to-indigo-700 hover:from-indigo-700 hover:to-indigo-800 text-white px-6 py-3 rounded-xl font-bold flex items-center gap-2 transition-all transform hover:scale-105 hover:shadow-xl active:scale-95 border-b-4 border-indigo-900">
+                        <span class="text-xl">🔄</span> Verileri Güncelle
+                    </button>` : ''}
                 </div>
                 <div class="bg-white p-4 rounded-xl shadow-sm border mb-6"><h3 class="font-bold text-gray-700 mb-3 flex items-center gap-2"><span>🏆 Kazanılan Rozetler</span><span class="bg-yellow-500 text-white text-xs px-2 py-1 rounded-full">${badges.length}</span></h3><div class="flex flex-wrap gap-2">${badges.length > 0 ? badges.map(badge => `<span class="${badge.color} px-3 py-2 rounded-full text-sm font-medium flex items-center gap-2 shadow-sm">${badge.icon} ${badge.name}</span>`).join('') : '<div class="text-center text-gray-500 py-4"><span class="text-2xl">🎯</span><p class="mt-2">Henüz rozet kazanılmadı</p></div>'}</div></div>
                 <div class="bg-white p-4 rounded-xl shadow-sm border mb-6"><h3 class="font-bold text-gray-700 mb-3 flex items-center gap-2">🏆 Liderlik Tablosu (İlk 10)</h3><div class="overflow-x-auto"><table class="w-full text-sm"><thead class="bg-indigo-50 text-indigo-900"><tr><th class="p-2 text-center">Sıra</th><th class="p-2 text-left">Ad Soyad</th><th class="p-2 text-center">Sınıf</th><th class="p-2 text-center">Süre</th><th class="p-2 text-right">Puan</th></tr></thead><tbody class="divide-y">${top10.map((st, index) => { const isMe = st.number === studentResult.number; const mins = Math.floor((st.timeSpent || 0) / 60); const secs = (st.timeSpent || 0) % 60; return `<tr class="${isMe ? 'bg-yellow-50 border-l-4 border-yellow-400' : ''}"><td class="p-2 text-center font-bold text-gray-500">${index + 1}</td><td class="p-2 font-medium">${isMe ? '👉 ' + st.name : st.name}</td><td class="p-2 text-center text-xs text-gray-500">${st.className}</td><td class="p-2 text-center text-xs font-mono">${mins}dk ${secs}sn</td><td class="p-2 text-right font-bold text-indigo-600">${st.score}</td></tr>`; }).join('')}</tbody></table></div></div>
@@ -830,55 +836,64 @@
                 doc.save(`${name}_Sonuc.pdf`);
             } catch (error) { alert('PDF Hatası: ' + error.message); }
         };
-        // --- ÖĞRENCİ VERİ YENİLEME FONKSİYONU (YENİ) ---
+      GÜNCELLENMİŞ ÖĞRENCİ VERİ YENİLEME FONKSİYONU ---
         window.refreshStudentResult = async function() {
             const btn = document.getElementById('refreshStudentBtn');
+            const originalText = btn ? btn.innerHTML : "🔄 Verileri Güncelle";
+            
+            // 1. Butona tıklandığını belli et (Loading Modu)
             if(btn) { 
-                btn.innerHTML = "⌛ Yükleniyor..."; 
+                btn.innerHTML = `<div class="loader w-4 h-4 border-2 border-white mr-2"></div> Yükleniyor...`; 
                 btn.disabled = true; 
-                btn.classList.add('opacity-50', 'cursor-not-allowed');
+                btn.classList.add('opacity-75', 'cursor-not-allowed', 'scale-95'); // Tıklanmış hissi ver
             }
 
             try {
-                // Hafızadaki öğrenci bilgisini kontrol et
+                // 2. Global değişken kontrolü (Sayfa F5 yapıldıysa veri kaybolur)
                 if (!studentData || !studentData.examCode || !studentData.number) {
-                    alert("Oturum bilgisi zaman aşımına uğradı. Lütfen tekrar giriş yapın.");
-                    location.reload(); // Bilgi yoksa mecburen login ekranına at
-                    return;
+                    throw new Error("Oturum bilgisi eksik. Lütfen tekrar giriş yapınız.");
                 }
 
                 const studentKey = `${studentData.examCode}_${studentData.number}`;
                 
-                // Veritabanından en güncel halini çek
+                // 3. Veritabanından en güncel veriyi çek
+                // (getDocs kullanarak cache yerine sunucudan zorluyoruz)
                 const q = query(collection(db, "quiz_submissions"), where("studentKey", "==", studentKey));
                 const querySnapshot = await getDocs(q);
 
                 if (!querySnapshot.empty) {
                     const freshData = querySnapshot.docs[0].data();
-                    // Ekranı yeni veriyle tekrar oluştur
-                    showStudentDashboard(freshData);
                     
-                    // Kullanıcıya küçük bir bildirim (Opsiyonel)
-                    const toast = document.createElement('div');
-                    toast.className = 'fixed top-4 right-4 bg-green-600 text-white px-4 py-2 rounded shadow-lg z-50 animate-bounce';
-                    toast.innerText = 'Veriler Güncellendi!';
-                    document.body.appendChild(toast);
-                    setTimeout(() => toast.remove(), 2000);
+                    // 4. Ekranı yenile (Yarım saniye gecikme ekleyerek kullanıcının yenilendiğini hissetmesini sağla)
+                    setTimeout(() => {
+                        showStudentDashboard(freshData);
+                        
+                        // Başarı Mesajı Göster
+                        const toast = document.createElement('div');
+                        toast.className = 'fixed top-10 right-1/2 transform translate-x-1/2 bg-green-600 text-white px-6 py-3 rounded-xl shadow-2xl z-50 font-bold flex items-center gap-2 animate-bounce';
+                        toast.innerHTML = '<span>✅</span> Veriler Başarıyla Güncellendi!';
+                        document.body.appendChild(toast);
+                        setTimeout(() => toast.remove(), 2500);
+                    }, 500);
+
                 } else {
-                    alert("Veri bulunamadı. Lütfen sayfayı yenileyip tekrar giriş yapın.");
+                    throw new Error("Sonuç verisi bulunamadı.");
                 }
             } catch (error) {
                 console.error(error);
-                alert("Yenileme hatası: " + error.message);
-                // Hata olursa butonu eski haline getir
+                alert("Hata: " + error.message);
+                
+                // Hata durumunda butonu eski haline getir
                 if(btn) { 
-                    btn.innerHTML = "🔄 Verileri Güncelle"; 
-                    btn.disabled = false; 
-                    btn.classList.remove('opacity-50', 'cursor-not-allowed');
+                    btn.innerHTML = "❌ Tekrar Dene"; 
+                    setTimeout(() => {
+                         btn.innerHTML = "🔄 Verileri Güncelle";
+                         btn.disabled = false;
+                         btn.classList.remove('opacity-75', 'cursor-not-allowed', 'scale-95');
+                    }, 2000);
                 }
             }
         };
-
         function calculateBadges(studentResult, rank, totalStudents, historyData) {
             const badges = []; const score = parseFloat(studentResult.score || 0); const correct = parseInt(studentResult.correct || 0, 10); const incorrect = parseInt(studentResult.incorrect || 0, 10);
             if (score >= 90) badges.push({ name: "Sınav Şampiyonu", icon: "🏆", color: "bg-yellow-100 text-yellow-800 border border-yellow-200" });
