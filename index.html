@@ -78,6 +78,9 @@
         };
 
         // --- Global Değişkenler ---
+     
+
+        let currentSort = { column: 'score', direction: 'desc' }; // Varsayılan: Puana göre azalan
         let db, auth;
         let isAuthReady = false, isDbConnected = false;
         let adminMasterCode = null;
@@ -555,7 +558,23 @@
             <div id="tab-results" class="tab-content">
                 <div class="flex justify-between items-center mb-4"><h2 class="font-bold text-lg text-gray-700">Sonuç Listesi</h2><div class="flex gap-2"><button onclick="window.loadResults()" class="bg-indigo-600 text-white px-3 py-1 rounded text-sm flex items-center gap-1">🔄 Yenile</button><button onclick="window.exportToExcel()" class="bg-green-600 text-white px-3 py-1 rounded text-sm">Excel İndir</button><button onclick="window.exportDetailedResults()" class="bg-blue-600 text-white px-3 py-1 rounded text-sm">Detaylı Excel</button></div></div>
                 <div class="flex flex-wrap gap-2 mb-4"><input id="filterCode" placeholder="Kod Ara" class="p-2 border rounded text-sm w-24"><input id="filterName" placeholder="İsim Ara" class="p-2 border rounded text-sm flex-1"><select id="filterClass" class="p-2 border rounded text-sm w-32"><option value="">Tüm Sınıflar</option></select><button onclick="window.bulkDeleteFiltered()" class="bg-red-600 text-white px-3 py-1 rounded text-sm">Filtrelenmişleri Sil</button><button onclick="window.bulkDeleteAll()" class="bg-red-800 text-white px-3 py-1 rounded text-sm">Tümünü Sil</button></div>
-                <div class="overflow-auto max-h-[500px] border rounded-lg"><table class="min-w-full divide-y divide-gray-200 text-sm"><thead class="bg-gray-100 sticky top-0"><tr><th class="p-3 text-left">Öğrenci</th><th class="p-3 text-left">Kod</th><th class="p-3 text-left">Puan</th><th class="p-3 text-left">D/Y/B</th><th class="p-3 text-left">Süre</th><th class="p-3 text-left">Odak Kaybı</th><th class="p-3 text-left">IP</th><th class="p-3 text-left">Tarih/Saat</th><th class="p-3 text-left">İşlem</th></tr></thead><tbody id="resultsTableBody" class="bg-white divide-y"></tbody></table></div>
+                <div class="overflow-auto max-h-[500px] border rounded-lg"><table class="min-w-full divide-y divide-gray-200 text-sm"><thead class="bg-gray-100 sticky top-0">
+    <tr>
+        <th class="p-3 text-left w-12">No</th> <th class="p-3 text-left">Öğrenci</th>
+        <th class="p-3 text-left">Kod</th>
+        <th class="p-3 text-left cursor-pointer hover:bg-gray-200 select-none transition-colors" onclick="window.toggleSort('score')">
+            Puan <span id="sortIcon-score" class="text-xs ml-1">▼</span>
+        </th>
+        <th class="p-3 text-left">D/Y/B</th>
+        <th class="p-3 text-left">Süre</th>
+        <th class="p-3 text-left">Odak Kaybı</th>
+        <th class="p-3 text-left">IP</th>
+        <th class="p-3 text-left cursor-pointer hover:bg-gray-200 select-none transition-colors" onclick="window.toggleSort('timestamp')">
+            Tarih/Saat <span id="sortIcon-timestamp" class="text-xs ml-1 text-gray-400">⇅</span>
+        </th>
+        <th class="p-3 text-left">İşlem</th>
+    </tr>
+</thead><tbody id="resultsTableBody" class="bg-white divide-y"></tbody></table></div>
             </div>
 
             <div id="tab-online" class="tab-content hidden">
@@ -665,29 +684,100 @@
 
         function updateClassFilter() { const cf = document.getElementById('filterClass'); const cls = [...new Set(allSubmissions.map(s => s.className))].filter(c => c).sort(); cf.innerHTML = '<option value="">Tüm Sınıflar</option>'; cls.forEach(c => cf.innerHTML += `<option value="${c}">${c}</option>`); }
 
-        function renderResultsTable() {
+      // YENİ EKLENECEK FONKSİYON:
+window.toggleSort = (col) => {
+    // Eğer aynı sütuna tıklandıysa yönü tersine çevir, farklıysa 'desc' (azalan) yap
+    if (currentSort.column === col) {
+        currentSort.direction = currentSort.direction === 'desc' ? 'asc' : 'desc';
+    } else {
+        currentSort.column = col;
+        currentSort.direction = 'desc';
+    }
+    renderResultsTable(); // Tabloyu yeni ayara göre yenile
+};
+      
+       function renderResultsTable() {
             const fCode = document.getElementById('filterCode').value.toLowerCase();
             const fName = document.getElementById('filterName').value.toLowerCase();
             const fClass = document.getElementById('filterClass').value;
             const tbody = document.getElementById('resultsTableBody');
-            const filtered = allSubmissions.filter(s => (s.examCode||'').toLowerCase().includes(fCode) && (s.name||'').toLowerCase().includes(fName) && (!fClass || s.className === fClass)).sort((a,b) => b.score - a.score);
+
+            // 1. Filtreleme
+            let filtered = allSubmissions.filter(s => 
+                (s.examCode||'').toLowerCase().includes(fCode) && 
+                (s.name||'').toLowerCase().includes(fName) && 
+                (!fClass || s.className === fClass)
+            );
+
+            // 2. Sıralama (YENİ EKLENEN KISIM)
+            filtered.sort((a, b) => {
+                let valA, valB;
+
+                // Puana göre sıralama (Sayısal)
+                if (currentSort.column === 'score') {
+                    valA = parseFloat(a.score || 0);
+                    valB = parseFloat(b.score || 0);
+                } 
+                // Tarihe göre sıralama (Timestamp)
+                else if (currentSort.column === 'timestamp') {
+                    // Firebase timestamp nesnesini saniyeye çevirip karşılaştırıyoruz
+                    valA = a.timestamp ? a.timestamp.seconds : 0;
+                    valB = b.timestamp ? b.timestamp.seconds : 0;
+                }
+
+                if (valA < valB) return currentSort.direction === 'asc' ? -1 : 1;
+                if (valA > valB) return currentSort.direction === 'asc' ? 1 : -1;
+                return 0;
+            });
+
+            // 3. Ok Simgelerini Güncelle (Arayüz)
+            const iconScore = document.getElementById('sortIcon-score');
+            const iconTime = document.getElementById('sortIcon-timestamp');
+            
+            if(iconScore && iconTime) {
+                // Hepsini sıfırla
+                iconScore.innerText = '⇅'; iconScore.className = 'text-xs ml-1 text-gray-400';
+                iconTime.innerText = '⇅'; iconTime.className = 'text-xs ml-1 text-gray-400';
+
+                // Aktif olanı boya
+                const activeIcon = currentSort.column === 'score' ? iconScore : iconTime;
+                activeIcon.innerText = currentSort.direction === 'asc' ? '▲' : '▼';
+                activeIcon.className = 'text-xs ml-1 text-black font-bold';
+            }
             
             if(filtered.length === 0) {
-                 tbody.innerHTML = '<tr><td colspan="9" class="p-4 text-center text-gray-400">Sonuç bulunamadı.</td></tr>';
+                 tbody.innerHTML = '<tr><td colspan="10" class="p-4 text-center text-gray-400">Sonuç bulunamadı.</td></tr>';
                  return;
             }
 
-            tbody.innerHTML = filtered.map(s => {
-                const min = Math.floor((s.timeSpent||0) / 60); const sec = (s.timeSpent||0) % 60;
-                return `<tr class="hover:bg-gray-50"><td class="p-3"><div class="font-bold text-gray-800">${s.name}</div><div class="text-xs text-gray-500">${s.number} - ${s.className}</div></td><td class="p-3 font-mono text-xs">${s.examCode}</td><td class="p-3 font-bold ${s.score >= 50 ? 'text-green-600':'text-red-600'}">${s.score}</td><td class="p-3 text-xs">${s.correct}D / ${s.incorrect}Y / ${s.empty}B</td><td class="p-3 text-xs">${min}:${sec < 10 ? '0' : ''}${sec}</td><td class="p-3 text-xs">${s.focusLossCount || 0}</td><td class="p-3 text-xs font-mono">${s.ipAddress || 'N/A'}</td><td class="p-3 text-xs">${s.formattedDateTime}</td>
-                <td class="p-3 flex gap-2 flex-wrap">
-                    <button onclick="window.viewStudentResult('${s.id}')" class="bg-indigo-50 text-indigo-600 hover:bg-indigo-100 border border-indigo-200 px-2 py-1 rounded text-xs font-bold flex items-center gap-1">👁️ Karne</button>
-                    <button onclick="window.showTimeAnalysis('${s.id}')" class="text-blue-600 hover:bg-blue-50 px-2 py-1 rounded text-xs border border-blue-200">⏱️ Süre</button>
-                    <button onclick="window.deleteSub('${s.id}')" class="text-red-600 hover:underline text-xs bg-red-50 border border-red-200 px-2 py-1 rounded">Sil</button>
-                </td></tr>`;
+            // 4. Tabloyu Çizdir (Başa 'No' sütunu eklendi)
+            tbody.innerHTML = filtered.map((s, index) => {
+                const min = Math.floor((s.timeSpent||0) / 60); 
+                const sec = (s.timeSpent||0) % 60;
+                
+                return `
+                <tr class="hover:bg-gray-50 border-b">
+                    <td class="p-3 font-bold text-gray-500">${index + 1}</td>
+                    
+                    <td class="p-3">
+                        <div class="font-bold text-gray-800">${s.name}</div>
+                        <div class="text-xs text-gray-500">${s.number} - ${s.className}</div>
+                    </td>
+                    <td class="p-3 font-mono text-xs">${s.examCode}</td>
+                    <td class="p-3 font-bold ${s.score >= 50 ? 'text-green-600':'text-red-600'}">${s.score}</td>
+                    <td class="p-3 text-xs">${s.correct}D / ${s.incorrect}Y / ${s.empty}B</td>
+                    <td class="p-3 text-xs">${min}:${sec < 10 ? '0' : ''}${sec}</td>
+                    <td class="p-3 text-xs">${s.focusLossCount || 0}</td>
+                    <td class="p-3 text-xs font-mono">${s.ipAddress || 'N/A'}</td>
+                    <td class="p-3 text-xs">${s.formattedDateTime}</td>
+                    <td class="p-3 flex gap-2 flex-wrap">
+                        <button onclick="window.viewStudentResult('${s.id}')" class="bg-indigo-50 text-indigo-600 hover:bg-indigo-100 border border-indigo-200 px-2 py-1 rounded text-xs font-bold flex items-center gap-1">👁️ Karne</button>
+                        <button onclick="window.showTimeAnalysis('${s.id}')" class="text-blue-600 hover:bg-blue-50 px-2 py-1 rounded text-xs border border-blue-200">⏱️ Süre</button>
+                        <button onclick="window.deleteSub('${s.id}')" class="text-red-600 hover:underline text-xs bg-red-50 border border-red-200 px-2 py-1 rounded">Sil</button>
+                    </td>
+                </tr>`;
             }).join('');
         }
-
         async function loadMyExams() {
             const container = document.getElementById('myExamsList');
             container.innerHTML = `<div class="col-span-full text-center py-10"><div class="loader mb-4"></div><p class="font-bold text-gray-600">Yükleniyor...</p></div>`;
@@ -1205,6 +1295,7 @@
     </script>
 </body>
 </html>
+
 
 
 
