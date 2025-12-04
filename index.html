@@ -241,11 +241,14 @@
                     document.getElementById('teacherDisplayArea').classList.add('opacity-0');
                 }
 
-                if (success && !isExamActive) {
-                    infoArea.innerHTML = `<div class="bg-red-100 border-l-4 border-red-500 text-red-700 p-4 rounded shadow-md"><p class="font-bold text-lg">⛔ Sınav Erişimi Kapalı</p><p>Bu sınav şu anda oturuma kapalıdır.</p></div>`;
-                    infoArea.classList.remove('hidden'); loginFields.innerHTML = ''; btn.disabled = true;
-                    return; 
-                }
+              if (success && !isExamActive) {
+    // DEĞİŞİKLİK: Sınav kapalı olsa bile giriş formunu gizlemiyoruz, sadece uyarı veriyoruz.
+    infoArea.innerHTML = `<div class="bg-orange-100 border-l-4 border-orange-500 text-orange-700 p-4 rounded shadow-md mb-4"><p class="font-bold text-lg">🔒 Sınav Erişimi Kapalı</p><p>Yeni sınav başlatılamaz. Sadece sınav sonucunuzu görüntülemek için giriş yapabilirsiniz.</p></div>`;
+    infoArea.classList.remove('hidden');
+    // loginFields.innerHTML = '';  <-- BU SATIRI SİLDİK
+    // btn.disabled = true;         <-- BU SATIRI SİLDİK
+    // return;                      <-- BU SATIRI SİLDİK
+}
 
                 infoArea.innerHTML = `<p class="font-bold">Sınav: ${code}</p><p>${sanitizeInput(currentExamConfig.exam_description)}</p><p class="text-xs mt-1">⏱️ Süre: ${Math.floor(currentExamConfig.time_limit/60)} Dakika | 📝 Soru: ${quizQuestions.length}</p>`;
                 infoArea.classList.remove('hidden');
@@ -299,11 +302,30 @@
             const loadBtn = document.getElementById('startQuizButton');
             loadBtn.innerText = "Kontrol Ediliyor..."; loadBtn.disabled = true;
 
-            try {
-                // OPTİMİZASYON: Sonuç var mı diye bak, sadece 1 okuma.
-                const subQ = query(collection(db, "quiz_submissions"), where("studentKey", "==", studentKey));
-                const subSnap = await getDocs(subQ);
-                
+           try {
+    // 1. Önce sonucu kontrol et
+    const subQ = query(collection(db, "quiz_submissions"), where("studentKey", "==", studentKey));
+    const subSnap = await getDocs(subQ);
+    
+    // Eğer sonuç varsa (Sınav açık veya kapalı fark etmez, sonucu gösterir)
+    if (!subSnap.empty) {
+        const existingData = subSnap.docs[0].data();
+        if (existingData.password === password) {
+            loadBtn.innerText = "Giriş"; loadBtn.disabled = false;
+            showCustomAlert("Giriş Başarılı", "Sonuç paneline yönlendiriliyorsunuz...").then(() => showStudentDashboard(existingData));
+        } else {
+            loadBtn.innerText = "Sınava Başla"; loadBtn.disabled = false;
+            showCustomAlert("Erişim Reddedildi", "<b>Hatalı Şifre!</b><br>Sonucunuzu görüntülemek için doğru şifreyi girmelisiniz.");
+        }
+        return;
+    }
+
+    // 2. Eğer sonuç YOKSA ve sınav KAPALIYSA -> Hata ver ve durdur.
+    if (currentExamConfig.is_active === false) {
+        loadBtn.innerText = "Giriş Yapılamadı"; loadBtn.disabled = false;
+        showCustomAlert("Sınav Kapalı", "Bu sınav oturuma kapatılmıştır. Daha önce sınavı tamamlamadığınız için sonuç görüntüleyemezsiniz.");
+        return;
+    }
                 if (!subSnap.empty) {
                     const existingData = subSnap.docs[0].data();
                     if (existingData.password === password) {
@@ -855,6 +877,7 @@ window.toggleSort = (col) => {
         window.forceClosePreview = function() { let id=window.setTimeout(function(){},0);while(id--){window.clearTimeout(id);window.clearInterval(id);}window.onblur=null;document.oncontextmenu=null;isPreviewMode=false;if(typeof showDashboard==='function'){showDashboard();window.changeTab('myexams');}else{location.reload();} };
         
         // --- ÖĞRENCİ PANELİ ---
+       // --- GÜNCELLENMİŞ ÖĞRENCİ PANELİ (İSTEĞE ÖZEL REVİZE EDİLDİ) ---
         async function showStudentDashboard(studentResult) {
             document.getElementById('connectionStatus').classList.add('hidden');
             document.getElementById('app').className = 'app-card max-w-6xl w-full';
@@ -871,65 +894,249 @@ window.toggleSort = (col) => {
 
             document.getElementById('loginHeader').innerHTML = `
                 <div class="flex justify-between items-center px-4">
-                    <div><h1 class="text-xl font-bold">${studentResult.name}</h1><span class="text-xs opacity-80">${studentResult.examCode} Raporu</span></div>
+                    <div><h1 class="text-xl font-bold">${studentResult.name}</h1><span class="text-xs opacity-80">${studentResult.examCode} Sonuç Ekranı</span></div>
                     <button onclick="${backButtonAction}" class="${headerClass} text-white text-xs px-3 py-2 rounded font-bold shadow">${backButtonText}</button>
                 </div>`;
 
-            document.getElementById('mainContentArea').innerHTML = `<div class="text-center py-10"><div class="loader mb-4"></div><p class="font-bold text-gray-600">Sınıf verileri analiz ediliyor...</p></div>`;
+            document.getElementById('mainContentArea').innerHTML = `<div class="text-center py-10"><div class="loader mb-4"></div><p class="font-bold text-gray-600">Sınav durumu kontrol ediliyor ve veriler analiz ediliyor...</p></div>`;
 
             try {
-                // OPTİMİZASYON: Veriyi sadece 1 kere çek
-                const allResultsQuery = query(collection(db, "quiz_submissions"), where("examCode", "==", studentResult.examCode));
-                const allSnap = await getDocs(allResultsQuery);
-                const allData = allSnap.docs.map(d => d.data());
+                // 1. ADIM: Sınavın Aktiflik Durumunu Kontrol Et
+                const configRef = doc(db, "exam_settings", studentResult.examCode);
+                const configSnap = await getDoc(configRef);
+                const isExamActive = configSnap.exists() ? (configSnap.data().is_active !== false) : true;
 
+                // 2. ADIM: Geçmiş Verileri Çek (Grafik her iki durumda da görünecek)
                 const historyQuery = query(collection(db, "quiz_submissions"), where("number", "==", studentResult.number));
                 const historySnap = await getDocs(historyQuery);
                 const historyData = historySnap.docs.map(doc => ({ code: doc.data().examCode, score: parseFloat(doc.data().score), date: doc.data().timestamp })).sort((a, b) => (a.date?.seconds || 0) - (b.date?.seconds || 0));
 
-                allData.sort((a, b) => parseFloat(b.score) - parseFloat(a.score));
-                const myRank = allData.findIndex(d => d.number === studentResult.number) + 1;
-                const totalStudents = allData.length;
-                
-                const classStats = {};
-                allData.forEach(d => { if (!classStats[d.className]) classStats[d.className] = { totalScore: 0, count: 0 }; classStats[d.className].totalScore += parseFloat(d.score); classStats[d.className].count += 1; });
-                const classAverages = Object.keys(classStats).map(cls => ({ className: cls, avg: (classStats[cls].totalScore / classStats[cls].count).toFixed(2), count: classStats[cls].count })).sort((a, b) => parseFloat(b.avg) - parseFloat(a.avg));
-                const badges = calculateBadges(studentResult, myRank, totalStudents, historyData);
-                const top10 = allData.sort((a, b) => { const scoreDiff = parseFloat(b.score) - parseFloat(a.score); return scoreDiff !== 0 ? scoreDiff : (a.timeSpent || 99999) - (b.timeSpent || 99999); }).slice(0, 10);
+                let htmlContent = '';
 
-                let htmlContent = `
-                <div class='flex justify-center gap-3 mb-6 flex-wrap'>
-                    <button onclick="downloadSimplePDF()" class="bg-red-500 hover:bg-red-600 text-white px-4 py-2 rounded-lg font-bold flex items-center gap-2 transition-colors">📄 PDF İndir (Gelişmiş)</button>
-                    ${!window.isAdminViewingResult ? '<button id="refreshStudentBtn" onclick="window.refreshStudentResult()" class="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-lg font-bold flex items-center gap-2 transition-colors">🔄 Verileri Güncelle</button>' : ''}
-                </div>
-                <div class="bg-white p-4 rounded-xl shadow-sm border mb-6">
-    <h3 class="font-bold text-gray-700 mb-3 flex items-center gap-2">
-        <span>🏆 Kazanılan Rozetler</span>
-        <span class="bg-yellow-500 text-white text-xs px-2 py-1 rounded-full">${badges.length}</span>
-    </h3>
-    <div class="flex flex-wrap gap-3">
-        ${badges.length > 0 ? badges.map(badge => `
-            <div class="group relative flex justify-center">
-                <span class="${badge.color} px-3 py-2 rounded-full text-sm font-medium flex items-center gap-2 shadow-sm cursor-help transition-transform hover:scale-105">
-                    ${badge.icon} ${badge.name}
-                </span>
-                
-                <div class="absolute bottom-full mb-2 w-48 p-2 bg-gray-800 text-white text-xs rounded-lg shadow-xl opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all duration-200 z-50 text-center pointer-events-none">
-                    ${badge.desc}
-                    <div class="absolute top-100 left-1/2 -translate-x-1/2 -mt-1 border-4 border-transparent border-t-gray-800"></div>
-                </div>
-            </div>
-        `).join('') : '<div class="text-center text-gray-500 py-4 w-full"><span class="text-2xl">🎯</span><p class="mt-2">Henüz rozet kazanılmadı</p></div>'}
-    </div>
-</div>
-                <div class="bg-white p-4 rounded-xl shadow-sm border mb-6"><h3 class="font-bold text-gray-700 mb-3 flex items-center gap-2">🏆 Liderlik Tablosu (İlk 10)</h3><div class="overflow-x-auto"><table class="w-full text-sm"><thead class="bg-indigo-50 text-indigo-900"><tr><th class="p-2 text-center">Sıra</th><th class="p-2 text-left">Ad Soyad</th><th class="p-2 text-center">Sınıf</th><th class="p-2 text-center">Süre</th><th class="p-2 text-right">Puan</th></tr></thead><tbody class="divide-y">${top10.map((st, index) => { const isMe = st.number === studentResult.number; const mins = Math.floor((st.timeSpent || 0) / 60); const secs = (st.timeSpent || 0) % 60; return `<tr class="${isMe ? 'bg-yellow-50 border-l-4 border-yellow-400' : ''}"><td class="p-2 text-center font-bold text-gray-500">${index + 1}</td><td class="p-2 font-medium">${isMe ? '👉 ' + st.name : st.name}</td><td class="p-2 text-center text-xs text-gray-500">${st.className}</td><td class="p-2 text-center text-xs font-mono">${mins}dk ${secs}sn</td><td class="p-2 text-right font-bold text-indigo-600">${st.score}</td></tr>`; }).join('')}</tbody></table></div></div>
-                <div class="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6"><div class="bg-indigo-50 p-4 rounded-xl border border-indigo-100 flex flex-col items-center justify-center"><span class="text-sm text-indigo-600 font-bold mb-1">PUANINIZ</span><span class="text-4xl font-extrabold text-indigo-800">${studentResult.score}</span></div><div class="bg-orange-50 p-4 rounded-xl border border-orange-100 flex flex-col items-center justify-center relative overflow-hidden"><span class="text-sm text-orange-600 font-bold mb-1">GENEL SIRALAMA</span><div class="flex items-baseline gap-1"><span class="text-4xl font-extrabold text-orange-800">${myRank}</span><span class="text-sm text-gray-500 font-bold">/ ${totalStudents}</span></div></div><div class="bg-green-50 p-4 rounded-xl border border-green-100 flex flex-col items-center justify-center"><span class="text-sm text-green-600 font-bold mb-1">NET DURUMU</span><div class="text-sm font-bold text-gray-700"><span class="text-green-600">${studentResult.correct} D</span> - <span class="text-red-600">${studentResult.incorrect} Y</span> - <span class="text-gray-500">${studentResult.empty} B</span></div></div><div class="bg-blue-50 p-4 rounded-xl border border-blue-100 flex flex-col items-center justify-center"><span class="text-sm text-blue-600 font-bold mb-1">OKUL ORTALAMASI</span><span class="text-4xl font-extrabold text-blue-800">${(allData.reduce((acc, curr) => acc + parseFloat(curr.score), 0) / totalStudents).toFixed(2)}</span></div></div>
-                <div class="grid grid-cols-1 lg:grid-cols-2 gap-6"><div class="bg-white p-4 rounded-xl shadow-sm border"><h3 class="font-bold text-gray-700 mb-4 flex items-center gap-2"><span>🏆 Sınıf Başarı Ortalamaları</span></h3><div class="overflow-x-auto"><table class="w-full text-sm"><thead class="bg-gray-100"><tr><th class="p-2 text-left">Sınıf</th><th class="p-2 text-center">Öğrenci Sayısı</th><th class="p-2 text-right">Ortalama Puan</th></tr></thead><tbody class="divide-y">${classAverages.map(c => `<tr class="${c.className === studentResult.className ? 'bg-indigo-50' : ''}"><td class="p-2 font-bold text-gray-700">${c.className} ${c.className === studentResult.className ? '(Sınıfın)' : ''}</td><td class="p-2 text-center text-gray-600">${c.count}</td><td class="p-2 text-right font-mono font-bold text-indigo-600">${c.avg}</td></tr>`).join('')}</tbody></table></div></div><div class="bg-white p-4 rounded-xl shadow-sm border flex flex-col"><h3 class="font-bold text-gray-700 mb-4">📈 Gelişim Grafiğin</h3><div class="flex-grow min-h-[250px]"><canvas id="studentProgressChart"></canvas></div></div></div>`;
+                // --- DURUM 1: SINAV AKTİF (KISITLI GÖRÜNÜM) ---
+                if (isExamActive && !window.isAdminViewingResult) { 
+                    // Not: Admin bakıyorsa her şeyi görsün diye !isAdminViewingResult ekledim.
+                    
+                    htmlContent = `
+                    <div class="bg-yellow-50 border-l-4 border-yellow-500 p-4 mb-6 rounded shadow-sm">
+                        <div class="flex items-center">
+                            <div class="text-3xl mr-4">⚠️</div>
+                            <div>
+                                <p class="font-bold text-yellow-800 text-lg">Sınav Erişimi Devam Ediyor</p>
+                                <p class="text-sm text-yellow-700">Şu anda sadece kendi puanınızı ve doğru/yanlış sayılarınızı görebilirsiniz.</p>
+                                <p class="text-xs text-yellow-600 mt-1 font-semibold">📢 Genel sıralama, soru çözümleri ve sınıf analizleri sınav yönetici tarafından erişime kapatıldığında burada otomatik olarak görünecektir.</p>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
+                        <div class="bg-indigo-600 text-white p-6 rounded-xl shadow-lg flex flex-col items-center justify-center relative overflow-hidden">
+                            <div class="absolute top-0 right-0 -mt-4 -mr-4 w-24 h-24 bg-white opacity-10 rounded-full"></div>
+                            <span class="text-indigo-200 font-bold mb-2 tracking-widest">PUANINIZ</span>
+                            <span class="text-6xl font-extrabold">${studentResult.score}</span>
+                        </div>
+
+                        <div class="bg-white p-6 rounded-xl shadow-lg border border-gray-100 flex flex-col justify-center">
+                            <h3 class="text-gray-500 font-bold mb-4 text-center text-sm uppercase">Cevap İstatistikleri</h3>
+                            <div class="flex justify-around text-center">
+                                <div><div class="text-3xl font-bold text-green-600">${studentResult.correct}</div><div class="text-xs text-gray-400 font-bold mt-1">DOĞRU</div></div>
+                                <div><div class="text-3xl font-bold text-red-600">${studentResult.incorrect}</div><div class="text-xs text-gray-400 font-bold mt-1">YANLIŞ</div></div>
+                                <div><div class="text-3xl font-bold text-gray-600">${studentResult.empty}</div><div class="text-xs text-gray-400 font-bold mt-1">BOŞ</div></div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="bg-white p-4 rounded-xl shadow-sm border flex flex-col">
+                        <h3 class="font-bold text-gray-700 mb-4">📈 Gelişim Grafiğin</h3>
+                        <div class="flex-grow min-h-[250px]"><canvas id="studentProgressChart"></canvas></div>
+                    </div>
+                    
+                    <div class='flex justify-center gap-3 mt-6'>
+                         <button id="refreshStudentBtn" onclick="window.refreshStudentResult()" class="bg-indigo-600 hover:bg-indigo-700 text-white px-6 py-3 rounded-lg font-bold flex items-center gap-2 transition-colors shadow-lg">🔄 Durumu Kontrol Et / Yenile</button>
+                    </div>
+                    `;
+
+                } 
+                // --- DURUM 2: SINAV KAPALI (DETAYLI GÖRÜNÜM) ---
+                else {
+                    // Detaylı verileri (Diğer öğrencilerin sonuçları ve sorular) sadece sınav kapalıysa çek
+                    const allResultsQuery = query(collection(db, "quiz_submissions"), where("examCode", "==", studentResult.examCode));
+                    const allSnap = await getDocs(allResultsQuery);
+                    const allData = allSnap.docs.map(d => d.data());
+
+                    // Soruları Çek
+                    const questionsSnap = await getDoc(doc(db, "questions_pool", studentResult.examCode));
+                    const questionsList = questionsSnap.exists() ? questionsSnap.data().questions_list : [];
+
+                    // Hesaplamalar
+                    allData.sort((a, b) => parseFloat(b.score) - parseFloat(a.score));
+                    const myRank = allData.findIndex(d => d.number === studentResult.number) + 1;
+                    const totalStudents = allData.length;
+                    
+                    const classStats = {};
+                    allData.forEach(d => { if (!classStats[d.className]) classStats[d.className] = { totalScore: 0, count: 0 }; classStats[d.className].totalScore += parseFloat(d.score); classStats[d.className].count += 1; });
+                    const classAverages = Object.keys(classStats).map(cls => ({ className: cls, avg: (classStats[cls].totalScore / classStats[cls].count).toFixed(2), count: classStats[cls].count })).sort((a, b) => parseFloat(b.avg) - parseFloat(a.avg));
+                    const badges = calculateBadges(studentResult, myRank, totalStudents, historyData);
+                    const top10 = allData.sort((a, b) => { const scoreDiff = parseFloat(b.score) - parseFloat(a.score); return scoreDiff !== 0 ? scoreDiff : (a.timeSpent || 99999) - (b.timeSpent || 99999); }).slice(0, 10);
+
+                    // Soru Analiz HTML Oluşturucu
+                    let questionAnalysisHTML = '<div class="text-center text-gray-500 italic p-4">Soru verisine ulaşılamadı.</div>';
+                    if (questionsList.length > 0) {
+                        questionAnalysisHTML = `
+                        <div class="overflow-x-auto">
+                            <table class="w-full text-sm border-collapse">
+                                <thead>
+                                    <tr class="bg-gray-800 text-white">
+                                        <th class="p-3 text-left rounded-tl-lg">No</th>
+                                        <th class="p-3 text-left w-1/2">Soru</th>
+                                        <th class="p-3 text-center">Cevabın</th>
+                                        <th class="p-3 text-center">Doğru Cevap</th>
+                                        <th class="p-3 text-center rounded-tr-lg">Durum</th>
+                                    </tr>
+                                </thead>
+                                <tbody class="divide-y divide-gray-200">
+                        `;
+                        
+                        questionsList.forEach((q, idx) => {
+                            const studentAns = (studentResult.allAnswers && studentResult.allAnswers[idx]) ? studentResult.allAnswers[idx] : '-';
+                            const correctAns = q.answer;
+                            let rowClass = "";
+                            let statusIcon = "";
+                            let statusText = "";
+                            let studentAnsClass = "font-bold";
+
+                            if (studentAns === '-') {
+                                rowClass = "bg-gray-50";
+                                statusIcon = "⚪";
+                                statusText = "BOŞ";
+                                studentAnsClass = "text-gray-400";
+                            } else if (studentAns === correctAns) {
+                                rowClass = "bg-green-50";
+                                statusIcon = "✅";
+                                statusText = "DOĞRU";
+                                studentAnsClass = "text-green-700";
+                            } else {
+                                rowClass = "bg-red-50";
+                                statusIcon = "❌";
+                                statusText = "YANLIŞ";
+                                studentAnsClass = "text-red-700";
+                            }
+
+                            questionAnalysisHTML += `
+                                <tr class="${rowClass} hover:bg-opacity-75 transition">
+                                    <td class="p-3 font-bold text-gray-600 border-r">${idx + 1}</td>
+                                    <td class="p-3 border-r">
+                                        <div class="font-medium text-gray-800">${sanitizeInput(q.question)}</div>
+                                        ${q.image ? `<a href="${q.image}" target="_blank" class="text-xs text-blue-500 hover:underline">Resmi Gör</a>` : ''}
+                                    </td>
+                                    <td class="p-3 text-center border-r ${studentAnsClass}">${studentAns}</td>
+                                    <td class="p-3 text-center border-r font-bold text-green-700">${correctAns}</td>
+                                    <td class="p-3 text-center font-bold text-xs">${statusIcon} ${statusText}</td>
+                                </tr>
+                            `;
+                        });
+                        questionAnalysisHTML += `</tbody></table></div>`;
+                    }
+
+                    // HTML Birleştirme
+                    htmlContent = `
+                    <div class='flex justify-center gap-3 mb-6 flex-wrap'>
+                        <div class="w-full bg-green-100 text-green-800 p-3 rounded text-center font-bold text-sm mb-2 border border-green-200">
+                             🎉 Sınav erişime kapatılmıştır. Tüm sonuçlarınız ve sıralamanız aşağıdadır.
+                        </div>
+                        <button onclick="downloadSimplePDF()" class="bg-red-500 hover:bg-red-600 text-white px-4 py-2 rounded-lg font-bold flex items-center gap-2 transition-colors">📄 PDF İndir (Gelişmiş)</button>
+                    </div>
+
+                    <div class="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
+                        <div class="bg-indigo-50 p-4 rounded-xl border border-indigo-100 flex flex-col items-center justify-center">
+                            <span class="text-sm text-indigo-600 font-bold mb-1">PUANINIZ</span>
+                            <span class="text-4xl font-extrabold text-indigo-800">${studentResult.score}</span>
+                        </div>
+                        <div class="bg-orange-50 p-4 rounded-xl border border-orange-100 flex flex-col items-center justify-center relative overflow-hidden">
+                            <span class="text-sm text-orange-600 font-bold mb-1">GENEL SIRALAMA</span>
+                            <div class="flex items-baseline gap-1">
+                                <span class="text-4xl font-extrabold text-orange-800">${myRank}</span>
+                                <span class="text-sm text-gray-500 font-bold">/ ${totalStudents}</span>
+                            </div>
+                        </div>
+                        <div class="bg-green-50 p-4 rounded-xl border border-green-100 flex flex-col items-center justify-center">
+                            <span class="text-sm text-green-600 font-bold mb-1">NET DURUMU</span>
+                            <div class="text-sm font-bold text-gray-700">
+                                <span class="text-green-600">${studentResult.correct} D</span> - 
+                                <span class="text-red-600">${studentResult.incorrect} Y</span> - 
+                                <span class="text-gray-500">${studentResult.empty} B</span>
+                            </div>
+                        </div>
+                        <div class="bg-blue-50 p-4 rounded-xl border border-blue-100 flex flex-col items-center justify-center">
+                            <span class="text-sm text-blue-600 font-bold mb-1">OKUL ORTALAMASI</span>
+                            <span class="text-4xl font-extrabold text-blue-800">${(allData.reduce((acc, curr) => acc + parseFloat(curr.score), 0) / totalStudents).toFixed(2)}</span>
+                        </div>
+                    </div>
+
+                    <div class="bg-white p-4 rounded-xl shadow-sm border mb-6">
+                        <h3 class="font-bold text-gray-700 mb-3 flex items-center gap-2">
+                            <span>🏆 Kazanılan Rozetler</span>
+                            <span class="bg-yellow-500 text-white text-xs px-2 py-1 rounded-full">${badges.length}</span>
+                        </h3>
+                        <div class="flex flex-wrap gap-3">
+                            ${badges.length > 0 ? badges.map(badge => `
+                                <div class="group relative flex justify-center">
+                                    <span class="${badge.color} px-3 py-2 rounded-full text-sm font-medium flex items-center gap-2 shadow-sm cursor-help transition-transform hover:scale-105">
+                                        ${badge.icon} ${badge.name}
+                                    </span>
+                                    <div class="absolute bottom-full mb-2 w-48 p-2 bg-gray-800 text-white text-xs rounded-lg shadow-xl opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all duration-200 z-50 text-center pointer-events-none">
+                                        ${badge.desc}
+                                    </div>
+                                </div>
+                            `).join('') : '<div class="text-center text-gray-500 py-4 w-full"><span class="text-2xl">🎯</span><p class="mt-2">Henüz rozet kazanılmadı</p></div>'}
+                        </div>
+                    </div>
+
+                    <div class="bg-white p-5 rounded-xl shadow-sm border mb-6 border-t-4 border-t-purple-500">
+                        <h3 class="font-bold text-gray-800 mb-4 text-lg flex items-center gap-2">📝 Detaylı Soru Analizi ve Cevaplarınız</h3>
+                        ${questionAnalysisHTML}
+                    </div>
+
+                    <div class="bg-white p-4 rounded-xl shadow-sm border mb-6">
+                        <h3 class="font-bold text-gray-700 mb-3 flex items-center gap-2">🏆 Liderlik Tablosu (İlk 10)</h3>
+                        <div class="overflow-x-auto">
+                            <table class="w-full text-sm">
+                                <thead class="bg-indigo-50 text-indigo-900"><tr><th class="p-2 text-center">Sıra</th><th class="p-2 text-left">Ad Soyad</th><th class="p-2 text-center">Sınıf</th><th class="p-2 text-center">Süre</th><th class="p-2 text-right">Puan</th></tr></thead>
+                                <tbody class="divide-y">
+                                    ${top10.map((st, index) => { const isMe = st.number === studentResult.number; const mins = Math.floor((st.timeSpent || 0) / 60); const secs = (st.timeSpent || 0) % 60; return `<tr class="${isMe ? 'bg-yellow-50 border-l-4 border-yellow-400' : ''}"><td class="p-2 text-center font-bold text-gray-500">${index + 1}</td><td class="p-2 font-medium">${isMe ? '👉 ' + st.name : st.name}</td><td class="p-2 text-center text-xs text-gray-500">${st.className}</td><td class="p-2 text-center text-xs font-mono">${mins}dk ${secs}sn</td><td class="p-2 text-right font-bold text-indigo-600">${st.score}</td></tr>`; }).join('')}
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+
+                    <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                        <div class="bg-white p-4 rounded-xl shadow-sm border">
+                            <h3 class="font-bold text-gray-700 mb-4 flex items-center gap-2"><span>🏆 Sınıf Başarı Ortalamaları</span></h3>
+                            <div class="overflow-x-auto">
+                                <table class="w-full text-sm">
+                                    <thead class="bg-gray-100"><tr><th class="p-2 text-left">Sınıf</th><th class="p-2 text-center">Öğrenci Sayısı</th><th class="p-2 text-right">Ortalama Puan</th></tr></thead>
+                                    <tbody class="divide-y">${classAverages.map(c => `<tr class="${c.className === studentResult.className ? 'bg-indigo-50' : ''}"><td class="p-2 font-bold text-gray-700">${c.className} ${c.className === studentResult.className ? '(Sınıfın)' : ''}</td><td class="p-2 text-center text-gray-600">${c.count}</td><td class="p-2 text-right font-mono font-bold text-indigo-600">${c.avg}</td></tr>`).join('')}</tbody>
+                                </table>
+                            </div>
+                        </div>
+                        <div class="bg-white p-4 rounded-xl shadow-sm border flex flex-col">
+                            <h3 class="font-bold text-gray-700 mb-4">📈 Gelişim Grafiğin</h3>
+                            <div class="flex-grow min-h-[250px]"><canvas id="studentProgressChart"></canvas></div>
+                        </div>
+                    </div>
+                    `;
+                }
+
                 document.getElementById('mainContentArea').innerHTML = htmlContent;
+                
+                // Grafik çizimi (Her iki durumda da var)
                 setTimeout(() => { const ctx = document.getElementById('studentProgressChart').getContext('2d'); new Chart(ctx, { type: 'line', data: { labels: historyData.map(h => h.code), datasets: [{ label: 'Puan', data: historyData.map(h => h.score), borderColor: '#4f46e5', backgroundColor: 'rgba(79, 70, 229, 0.1)', borderWidth: 3, fill: true, tension: 0.3 }] }, options: { responsive: true, maintainAspectRatio: false, scales: { y: { beginAtZero: true, max: 100 } } } }); }, 500);
-            } catch (e) { document.getElementById('mainContentArea').innerHTML = `<div class="text-center text-red-500 py-10"><p class="font-bold">Veriler alınırken hata oluştu.</p><p class="text-sm">${e.message}</p><button onclick="location.reload()" class="mt-4 button bg-gray-200 px-4 py-2 rounded">Tekrar Dene</button></div>`; }
-        }
 
+            } catch (e) { 
+                console.error(e);
+                document.getElementById('mainContentArea').innerHTML = `<div class="text-center text-red-500 py-10"><p class="font-bold">Veriler analiz edilirken hata oluştu.</p><p class="text-sm">${e.message}</p><button onclick="location.reload()" class="mt-4 button bg-gray-200 px-4 py-2 rounded">Sayfayı Yenile</button></div>`; 
+            }
+        }
         window.downloadSimplePDF = function() {
             try { if (!window.jspdf || !window.jspdf.jsPDF) return alert('PDF modülü yüklenmedi.'); const { jsPDF } = window.jspdf; const doc = new jsPDF();
                 const name = document.querySelector('h1.text-xl') ? document.querySelector('h1.text-xl').textContent.trim() : 'Ogrenci';
