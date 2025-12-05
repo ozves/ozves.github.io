@@ -79,7 +79,7 @@
 
         // --- Global Değişkenler ---
      
-
+       
         let currentSort = { column: 'score', direction: 'desc' }; // Varsayılan: Puana göre azalan
         let db, auth;
         let isAuthReady = false, isDbConnected = false;
@@ -111,7 +111,7 @@
         
         // OPTİMİZASYON İÇİN: Son veri çekme zamanları
         let lastSavedAnswers = null; // Auto save optimizasyonu
-
+        let lastSavedFocus = 0;
         // --- INPUT VALIDATION ---
         function sanitizeInput(input) {
             if (typeof input !== 'string') return '';
@@ -428,8 +428,26 @@
             // OPTİMİZASYON: AutoSave süresini 30 saniyeye çıkardım
             startAutoSave(); 
             
-            document.getElementById('prevBtn').onclick = () => { if(currentQuestionIndex > 0) { updateQuestionTime(); currentQuestionIndex--; renderQuestion(currentQuestionIndex); saveProgress(); } };
-            document.getElementById('nextBtn').onclick = () => { if(currentQuestionIndex < quizQuestions.length - 1) { updateQuestionTime(); currentQuestionIndex++; renderQuestion(currentQuestionIndex); saveProgress(); } else { updateQuestionTime(); finishQuiz(false); } };
+            // OPTİMİZASYON 1: Butonlarda saveProgress() kaldırıldı.
+document.getElementById('prevBtn').onclick = () => { 
+    if(currentQuestionIndex > 0) { 
+        updateQuestionTime(); 
+        currentQuestionIndex--; 
+        renderQuestion(currentQuestionIndex); 
+        // saveProgress(); // Yazma tasarrufu için kapattık
+    } 
+};
+document.getElementById('nextBtn').onclick = () => { 
+    if(currentQuestionIndex < quizQuestions.length - 1) { 
+        updateQuestionTime(); 
+        currentQuestionIndex++; 
+        renderQuestion(currentQuestionIndex); 
+        // saveProgress(); // Yazma tasarrufu için kapattık
+    } else { 
+        updateQuestionTime(); 
+        finishQuiz(false); 
+    } 
+};
         }
 
         function renderQuestion(idx) {
@@ -485,28 +503,57 @@
 
         function startAutoSave() { 
             // 30 saniyede bir otomatik kayıt (Write Optimization)
-            autoSaveInterval = setInterval(() => saveProgress(true), 30000); 
+            autoSaveInterval = setInterval(() => saveProgress(true), 60000); 
         }
 
-        async function saveProgress(isAuto = false) {
-            if (isTeacherMode && isPreviewMode) return;
-            if (isTeacherMode || !isDbConnected) return;
-            
-            // Veri değişmediyse yazma yapma (Optimization)
-            const currentAnswersStr = JSON.stringify(selectedAnswers);
-            if(isAuto && lastSavedAnswers === currentAnswersStr) return; 
+ // OPTİMİZASYON 3: Akıllı Kayıt Mantığı
+async function saveProgress(isAuto = false) {
+    if (isTeacherMode && isPreviewMode) return;
+    if (isTeacherMode || !isDbConnected) return;
+    
+    // Mevcut durumun özeti (Cevaplar ve Odak Kaybı Sayısı)
+    const currentAnswersStr = JSON.stringify(selectedAnswers);
+    
+    // EĞER: Otomatik kayıtsa..
+    // VE Cevaplar en son kaydedilenle aynıysa..
+    // VE Odak kaybı sayısı değişmediyse..
+    // O ZAMAN: Veritabanına BOŞUNA yazma, fonksiyondan çık.
+    if(isAuto && lastSavedAnswers === currentAnswersStr && focusLossCount === lastSavedFocus) {
+        return; 
+    }
 
-            try {
-                const now = Date.now();
-                const remainingSeconds = Math.floor((examendTimeStamp - now) / 1000);
-                if (!validateStudentData(studentData)) return;
-                const data = { ...studentData, studentKey: `${sanitizeExamCode(studentData.examCode)}_${studentData.number}`, questionOrder, selectedAnswers, questionDurations, currentQuestionIndex, timeLeft: remainingSeconds > 0 ? remainingSeconds : 0, focusLossCount, lastUpdated: serverTimestamp() };
-                if (currentSessionDocId) { await updateDoc(doc(db, "active_sessions", currentSessionDocId), data); } 
-                else { const ref = await addDoc(collection(db, "active_sessions"), data); currentSessionDocId = ref.id; }
-                lastSavedAnswers = currentAnswersStr;
-            } catch(e) { console.warn("Autosave failed:", e.message); }
+    try {
+        const now = Date.now();
+        const remainingSeconds = Math.floor((examendTimeStamp - now) / 1000);
+        
+        // Öğrenci verisi eksikse işlem yapma
+        if (!validateStudentData(studentData)) return;
+        
+        const data = { 
+            ...studentData, 
+            studentKey: `${sanitizeExamCode(studentData.examCode)}_${studentData.number}`, 
+            questionOrder, 
+            selectedAnswers, 
+            questionDurations, 
+            currentQuestionIndex, 
+            timeLeft: remainingSeconds > 0 ? remainingSeconds : 0, 
+            focusLossCount, 
+            lastUpdated: serverTimestamp() 
+        };
+
+        if (currentSessionDocId) { 
+            await updateDoc(doc(db, "active_sessions", currentSessionDocId), data); 
+        } else { 
+            const ref = await addDoc(collection(db, "active_sessions"), data); 
+            currentSessionDocId = ref.id; 
         }
+        
+        // Başarılı kayıt sonrası "En son bunları kaydettim" diye hafızaya alıyoruz
+        lastSavedAnswers = currentAnswersStr;
+        lastSavedFocus = focusLossCount;
 
+    } catch(e) { console.warn("Autosave failed:", e.message); }
+}
         async function finishQuiz(force = false) {
             if (isPreviewMode) {
                 if (timerInterval) clearInterval(timerInterval); if (autoSaveInterval) clearInterval(autoSaveInterval);
