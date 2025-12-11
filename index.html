@@ -229,7 +229,11 @@
                 document.getElementById('teacherDisplayArea').classList.add('opacity-0');
                 return;
             }
-
+if (code.length < 3) {
+        infoArea.classList.add('hidden');
+        document.getElementById('teacherDisplayArea').classList.add('opacity-0');
+        return;
+    }
             typingTimer = setTimeout(async () => {
                 const success = await fetchExamData(code);
                 const isExamActive = currentExamConfig.is_active !== false; 
@@ -285,6 +289,14 @@
 
         async function handleStudentLogin() {
             const code = sanitizeExamCode(document.getElementById('examCodeInput').value.trim());
+            // --- BAŞLA: BURAYI EKLEYİN ---
+    // Eğer ekrandaki kod ile hafızadaki kod uyuşmuyorsa veriyi tekrar çek
+    if (currentExamConfig.exam_code !== code) {
+        const loadBtn = document.getElementById('startQuizButton');
+        loadBtn.innerText = "Veriler Doğrulanıyor...";
+        await fetchExamData(code);
+    }
+    // --- BİTİR ---
             const selVal = document.getElementById('studentSelector') ? document.getElementById('studentSelector').value : null;
             if (!selVal) { showCustomAlert("Hata", "Lütfen listeden isminizi seçiniz."); return; }
             const inputNum = document.getElementById('numberVerify').value;
@@ -552,7 +564,17 @@ async function saveProgress(isAuto = false) {
         lastSavedAnswers = currentAnswersStr;
         lastSavedFocus = focusLossCount;
 
-    } catch(e) { console.warn("Autosave failed:", e.message); }
+    } catch(e) { 
+        console.warn("Autosave failed:", e.message); 
+        
+        // --- BAŞLA: BURAYI EKLEYİN ---
+        // Hata durumunda öğrenciye kırmızı uyarı göster
+        const statusDiv = document.getElementById('connectionStatus');
+        statusDiv.classList.remove('hidden');
+        statusDiv.innerHTML = "⚠️ BAĞLANTI HATASI: Cevaplarınız kaydedilemiyor! İnternetinizi kontrol edin.";
+        statusDiv.className = "mb-4 text-xs font-bold text-center p-2 rounded border bg-red-600 text-white animate-pulse";
+        // --- BİTİR ---
+    }
 }
         async function finishQuiz(force = false) {
             if (isPreviewMode) {
