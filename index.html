@@ -919,7 +919,68 @@ window.toggleSort = (col) => {
         window.deleteSub = async (id) => { if(confirm("Silmek istiyor musunuz?")) { await deleteDoc(doc(db, "quiz_submissions", id)); window.loadResults(); } }; // Silince tabloyu yenile
         window.bulkDeleteFiltered = async () => { const fCode = document.getElementById('filterCode').value.toLowerCase(); const fName = document.getElementById('filterName').value.toLowerCase(); const fClass = document.getElementById('filterClass').value; const filtered = allSubmissions.filter(s => (s.examCode||'').toLowerCase().includes(fCode) && (s.name||'').toLowerCase().includes(fName) && (!fClass || s.className === fClass)); if(filtered.length === 0) return alert("Kayıt yok."); if(confirm(`${filtered.length} kaydı silmek istiyor musunuz?`)) { for(const item of filtered) await deleteDoc(doc(db, "quiz_submissions", item.id)); alert("Silindi."); window.loadResults(); } };
         window.bulkDeleteAll = async () => { if(allSubmissions.length === 0) return alert("Kayıt yok."); if(confirm("Tümünü silmek istediğinize emin misiniz?")) { for(const item of allSubmissions) await deleteDoc(doc(db, "quiz_submissions", item.id)); alert("Tümü silindi."); window.loadResults(); } };
-        window.exportToExcel = () => { const data = allSubmissions.map(s => ({ 'Ad Soyad': s.name, 'Numara': s.number, 'Sınıf': s.className, 'Sınav Kodu': s.examCode, 'Puan': s.score, 'Doğru': s.correct, 'Yanlış': s.incorrect, 'Boş': s.empty, 'Süre (sn)': s.timeSpent, 'Odak Kaybı': s.focusLossCount, 'IP': s.ipAddress, 'Tarih': s.formattedDateTime })); const ws = XLSX.utils.json_to_sheet(data); const wb = XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb, ws, "Sonuclar"); XLSX.writeFile(wb, "sinav_sonuclari.xlsx"); };
+       window.exportToExcel = async () => {
+    // 1. Kullanıcıya bilgi verelim (Button yazısını değiştirebilirsin istersen)
+    const btn = document.querySelector('button[onclick="window.exportToExcel()"]');
+    const oldText = btn ? btn.innerText : "Excel İndir";
+    if(btn) { btn.innerText = "⏳ İndiriliyor..."; btn.disabled = true; }
+
+    try {
+        // 2. Veritabanındaki 'quiz_submissions' tablosundan TARİHE GÖRE SIRALI tüm veriyi çek
+        // 'orderBy' kullanarak en son girilen sınavın en üstte olmasını sağlıyoruz.
+        const q = query(collection(db, "quiz_submissions"), orderBy("timestamp", "desc"));
+        const snapshot = await getDocs(q);
+
+        if (snapshot.empty) {
+            alert("Veritabanında indirilicek hiç sınav kaydı yok!");
+            if(btn) { btn.innerText = oldText; btn.disabled = false; }
+            return;
+        }
+
+        // 3. Verileri Excel formatına uygun hale getir
+        const data = snapshot.docs.map(doc => {
+            const d = doc.data();
+            
+            // Tarih formatını ayarla
+            let tarih = "-";
+            if (d.timestamp && d.timestamp.toDate) {
+                const dateObj = d.timestamp.toDate();
+                tarih = dateObj.toLocaleDateString('tr-TR') + ' ' + dateObj.toLocaleTimeString('tr-TR');
+            }
+
+            return {
+                'Tarih': tarih,
+                'Öğrenci Adı': d.name || '-',
+                'Sınıf': d.className || '-',
+                'Numara': d.number || '-',
+                'Sınav Kodu': d.examCode || '-',
+                'Puan': d.score || 0,
+                'Doğru': d.correct || 0,
+                'Yanlış': d.incorrect || 0,
+                'Boş': d.empty || 0
+            };
+        });
+
+        // 4. Excel dosyasını oluştur ve indir
+        const ws = XLSX.utils.json_to_sheet(data);
+        const wb = XLSX.utils.book_new();
+        XLSX.utils.book_append_sheet(wb, ws, "Tum_Sinavlar");
+        
+        // Dosya ismine tarih ekleyelim ki karışmasın
+        const fileName = `Tum_Sinav_Gecmisi_${new Date().toLocaleDateString('tr-TR').replace(/\./g, '_')}.xlsx`;
+        XLSX.writeFile(wb, fileName);
+
+        // İşlem bitti mesajı
+        alert(`${data.length} adet sınav sonucu başarıyla indirildi.`);
+
+    } catch (error) {
+        console.error("Excel İndirme Hatası:", error);
+        alert("Excel oluşturulurken bir hata oluştu: " + error.message);
+    } finally {
+        // Butonu eski haline getir
+        if(btn) { btn.innerText = oldText; btn.disabled = false; }
+    }
+};
         window.exportDetailedResults = () => { const fCode = document.getElementById('filterCode').value.toLowerCase(); const fName = document.getElementById('filterName').value.toLowerCase(); const fClass = document.getElementById('filterClass').value; const filtered = allSubmissions.filter(s => (s.examCode||'').toLowerCase().includes(fCode) && (s.name||'').toLowerCase().includes(fName) && (!fClass || s.className === fClass)); if(filtered.length === 0) return alert("Filtreye uygun kayıt yok."); const data = filtered.map(s => { const result = { 'Ad Soyad': s.name, 'Numara': s.number, 'Sınıf': s.className, 'Sınav Kodu': s.examCode, 'Puan': s.score, 'Doğru': s.correct, 'Yanlış': s.incorrect, 'Boş': s.empty, 'Süre': s.timeSpent, 'Odak Kaybı': s.focusLossCount, 'IP': s.ipAddress, 'Tarih': s.formattedDateTime }; if(s.allAnswers) s.allAnswers.forEach((answer, index) => { result[`Soru ${index + 1}`] = answer || ''; }); return result; }); const ws = XLSX.utils.json_to_sheet(data); const wb = XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb, ws, "Detayli"); XLSX.writeFile(wb, "detayli_sonuclar.xlsx"); };
         window.updateExamName = async (code, name) => { try { await setDoc(getConfigRef(code), { custom_name: sanitizeInput(name) }, { merge: true }); } catch(e) { alert("Hata: " + e.message); } };
         window.updateExamTeacher = async (code) => { const inputBtn = document.getElementById(`teacherName-${code}`); try { await setDoc(getConfigRef(code), { teacher_name: sanitizeInput(inputBtn.value) }, { merge: true }); inputBtn.classList.add('bg-green-100'); setTimeout(()=>inputBtn.classList.remove('bg-green-100'),1000); } catch(e) { alert("Hata: " + e.message); } };
