@@ -113,9 +113,11 @@
         let lastSavedAnswers = null; // Auto save optimizasyonu
         let lastSavedFocus = 0;
         // --- INPUT VALIDATION ---
-        function sanitizeInput(input) {
+       function sanitizeInput(input) {
             if (typeof input !== 'string') return '';
-            return input.replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/'/g, '&#x27;').replace(/"/g, '&quot;').substring(0, 500);
+            // Eklediğimiz .replace(/\n/g, '<br>') sayesinde JSON'daki \n'ler alt satıra geçecek.
+            // Ayrıca uzun biyoloji soruları yarıda kesilmesin diye 500 sınırını 2000 yaptık.
+            return input.replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/'/g, '&#x27;').replace(/"/g, '&quot;').replace(/\n/g, '<br>').substring(0, 2000);
         }
 
         function sanitizeExamCode(code) {
