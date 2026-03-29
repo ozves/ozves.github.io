@@ -247,18 +247,15 @@ if (code.length < 3) {
                     document.getElementById('teacherDisplayArea').classList.add('opacity-0');
                 }
 
-              if (success && !isExamActive) {
-    // DEĞİŞİKLİK: Sınav kapalı olsa bile giriş formunu gizlemiyoruz, sadece uyarı veriyoruz.
-    infoArea.innerHTML = `<div class="bg-orange-100 border-l-4 border-orange-500 text-orange-700 p-4 rounded shadow-md mb-4"><p class="font-bold text-lg">🔒 Sınav Erişimi Kapalı</p><p>Yeni sınav başlatılamaz. Sadece sınav sonucunuzu görüntülemek için giriş yapabilirsiniz.</p></div>`;
-    infoArea.classList.remove('hidden');
-    // loginFields.innerHTML = '';  <-- BU SATIRI SİLDİK
-    // btn.disabled = true;         <-- BU SATIRI SİLDİK
-    // return;                      <-- BU SATIRI SİLDİK
+             let infoHtml = `<p class="font-bold">Sınav: ${code}</p><p>${sanitizeInput(currentExamConfig.exam_description)}</p><p class="text-xs mt-1">⏱️ Süre: ${Math.floor(currentExamConfig.time_limit/60)} Dakika | 📝 Soru: ${quizQuestions.length}</p>`;
+
+if (success && !isExamActive) {
+    // Uyarı mesajını, sınav bilgilerinin üstüne ekliyoruz (ezdirmiyoruz)
+    infoArea.innerHTML = `<div class="bg-orange-100 border-l-4 border-orange-500 text-orange-700 p-4 rounded shadow-md mb-4"><p class="font-bold text-lg">🔒 Sınav Erişimi Kapalı</p><p>Yeni sınav başlatılamaz. Sadece sınav sonucunuzu görüntülemek için giriş yapabilirsiniz.</p></div>` + infoHtml;
+} else {
+    infoArea.innerHTML = infoHtml;
 }
-
-                infoArea.innerHTML = `<p class="font-bold">Sınav: ${code}</p><p>${sanitizeInput(currentExamConfig.exam_description)}</p><p class="text-xs mt-1">⏱️ Süre: ${Math.floor(currentExamConfig.time_limit/60)} Dakika | 📝 Soru: ${quizQuestions.length}</p>`;
-                infoArea.classList.remove('hidden');
-
+infoArea.classList.remove('hidden');
                 if (!success || studentList.length === 0) {
                     loginFields.innerHTML = `<div class="bg-red-50 p-4 rounded border border-red-200 text-center"><p class="text-red-700 font-bold mb-2">⚠️ Liste Bulunamadı</p><p class="text-xs text-red-600">Bu sınava ait öğrenci listesi yüklenmemiş.</p></div>`;
                     btn.disabled = true;
@@ -340,31 +337,54 @@ if (code.length < 3) {
         showCustomAlert("Sınav Kapalı", "Bu sınav oturuma kapatılmıştır. Daha önce sınavı tamamlamadığınız için sonuç görüntüleyemezsiniz.");
         return;
     }
-                if (!subSnap.empty) {
-                    const existingData = subSnap.docs[0].data();
-                    if (existingData.password === password) {
-                        loadBtn.innerText = "Giriş"; loadBtn.disabled = false;
-                        showCustomAlert("Giriş Başarılı", "Kimlik doğrulandı. Sonuç paneline yönlendiriliyorsunuz...").then(() => showStudentDashboard(existingData));
-                    } else {
-                        loadBtn.innerText = "Sınava Başla"; loadBtn.disabled = false;
-                        showCustomAlert("Erişim Reddedildi", "<b>Hatalı Şifre!</b><br>Bu öğrencinin sonucunu görüntülemek için sınava başlarken belirlenen şifreyi girmelisiniz.");
-                    }
-                    return;
-                }
 
-                // Yarım kalan oturum kontrolü
+                // --- YENİ SİSTEM: YARIM KALAN OTURUM VE YEDEK KONTROLÜ ---
                 const sesQ = query(collection(db, "active_sessions"), where("studentKey", "==", studentKey));
                 const sesSnap = await getDocs(sesQ);
+                
+                // 1. Cihaz hafızasındaki (LocalStorage) yedeği çek
+                const localBackupStr = localStorage.getItem(`exam_backup_${code}_${realNum}`);
+                let localBackup = null;
+                if (localBackupStr) {
+                    try { localBackup = JSON.parse(localBackupStr); } catch(e) {}
+                }
+                
                 if (!sesSnap.empty) {
-                    const session = sesSnap.docs[0].data();
+                    let session = sesSnap.docs[0].data();
                     if (session.password && session.password !== password) {
                         loadBtn.innerText = "Sınava Başla"; loadBtn.disabled = false;
                         return showCustomAlert("Hata", "Yarım kalan oturuma devam etmek için doğru şifreyi girmelisiniz.");
                     }
-                    showCustomAlert("Devam Ediliyor", "Önceki oturumunuz bulundu.").then(() => {
+                    
+                    // 2. Eğer cihazda (internetsiz anlardan kalma) DAHA GÜNCEL bir yedek varsa onu kullan
+                    if (localBackup && localBackup.timestamp) {
+                        const serverTime = session.lastUpdated ? session.lastUpdated.toMillis() : 0;
+                        if (localBackup.timestamp > serverTime) {
+                            session.selectedAnswers = localBackup.answers || session.selectedAnswers;
+                            session.timeLeft = localBackup.timeLeft || session.timeLeft;
+                            session.currentQuestionIndex = localBackup.lastQuestionIndex || session.currentQuestionIndex;
+                            session.focusLossCount = localBackup.focusLossCount || session.focusLossCount;
+                        }
+                    }
+
+                    showCustomAlert("Devam Ediliyor", "Kayıtlı sınavınız başarıyla geri yüklendi.").then(() => {
                         restoreSession({ id: sesSnap.docs[0].id, ...session }); startQuiz();
                     });
+
+                } else if (localBackup) {
+                    // 3. Firebase'de kayıt silinmiş/yok ama cihazda hala yedek duruyor!
+                    startNewSession(realNum); 
+                    selectedAnswers = localBackup.answers || selectedAnswers;
+                    currentQuestionIndex = localBackup.lastQuestionIndex || 0;
+                    focusLossCount = localBackup.focusLossCount || 0;
+                    const remaining = localBackup.timeLeft || currentExamConfig.time_limit;
+                    examendTimeStamp = Date.now() + (remaining * 1000);
+                    
+                    showCustomAlert("Cihazdan Kurtarıldı", "Sunucuyla bağlantı koptuğu sırada yaptığınız değişiklikler cihazınızdan kurtarıldı!").then(() => {
+                        startQuiz();
+                    });
                 } else {
+                    // 4. Ne sunucuda ne de cihazda kayıt yok, öğrenci ilk kez giriyor.
                     startNewSession(realNum); startQuiz();
                 }
             } catch(e) {
@@ -442,7 +462,7 @@ if (code.length < 3) {
             // OPTİMİZASYON: AutoSave süresini 30 saniyeye çıkardım
             startAutoSave(); 
             
-            // OPTİMİZASYON 1: Butonlarda saveProgress() kaldırıldı.
+          // OPTİMİZASYON 1: Butonlarda saveProgress() kaldırıldı.
 document.getElementById('prevBtn').onclick = () => { 
     if(currentQuestionIndex > 0) { 
         updateQuestionTime(); 
@@ -463,6 +483,20 @@ document.getElementById('nextBtn').onclick = () => {
     } 
 };
         }
+// YENİ EKLENEN: Her şık işaretlendiğinde saniyesinde çalışan anlık yedekleme
+        window.saveToLocalBackup = function() {
+            if (!studentData || !studentData.examCode) return;
+            const now = Date.now();
+            const remainingSeconds = Math.floor((examendTimeStamp - now) / 1000);
+            const backupData = {
+                answers: selectedAnswers,
+                timeLeft: remainingSeconds > 0 ? remainingSeconds : 0,
+                lastQuestionIndex: currentQuestionIndex,
+                focusLossCount: focusLossCount,
+                timestamp: now
+            };
+            localStorage.setItem(`exam_backup_${studentData.examCode}_${studentData.number}`, JSON.stringify(backupData));
+        };
 
         function renderQuestion(idx) {
             const realIdx = questionOrder[idx];
@@ -480,11 +514,14 @@ document.getElementById('nextBtn').onclick = () => {
                 </div>
             `;
             document.getElementById('qCount').innerText = idx + 1;
-            document.querySelectorAll('input[name="opt"]').forEach(el => {
+           document.querySelectorAll('input[name="opt"]').forEach(el => {
                 el.onchange = (e) => { 
                     selectedAnswers[realIdx] = e.target.value; 
                     document.querySelectorAll('label').forEach(l => l.className = "flex items-center p-4 border-2 rounded-lg cursor-pointer transition-all border-gray-200 hover:bg-gray-50");
                     e.target.closest('label').className = "flex items-center p-4 border-2 rounded-lg cursor-pointer transition-all bg-indigo-50 border-indigo-500 shadow-md";
+                    
+                    // YENİ EKLENEN: Şık işaretlendiği an cihaza yedekle
+                    window.saveToLocalBackup();
                 };
             });
             document.getElementById('prevBtn').disabled = idx === 0;
@@ -520,32 +557,42 @@ document.getElementById('nextBtn').onclick = () => {
             autoSaveInterval = setInterval(() => saveProgress(true), 60000); 
         }
 
- // OPTİMİZASYON 3: Akıllı Kayıt Mantığı
+ // OPTİMİZASYON 3: Akıllı Kayıt Mantığı (GÜNCELLENDİ)
 async function saveProgress(isAuto = false) {
     if (isTeacherMode && isPreviewMode) return;
     if (isTeacherMode || !isDbConnected) return;
     
-    // Mevcut durumun özeti (Cevaplar ve Odak Kaybı Sayısı)
     const currentAnswersStr = JSON.stringify(selectedAnswers);
     
-    // EĞER: Otomatik kayıtsa..
-    // VE Cevaplar en son kaydedilenle aynıysa..
-    // VE Odak kaybı sayısı değişmediyse..
-    // O ZAMAN: Veritabanına BOŞUNA yazma, fonksiyondan çık.
     if(isAuto && lastSavedAnswers === currentAnswersStr && focusLossCount === lastSavedFocus) {
         return; 
     }
+
+    // --- YENİ EKLENEN: TARAYICI (CİHAZ) HAFIZASINA YEDEKLEME ---
+    // İnternet kopsa bile bu işlem cihazda anında gerçekleşir.
+    if (validateStudentData(studentData)) {
+        const now = Date.now();
+        const remainingSeconds = Math.floor((examendTimeStamp - now) / 1000);
+        const backupData = {
+            answers: selectedAnswers,
+            timeLeft: remainingSeconds > 0 ? remainingSeconds : 0,
+            lastQuestionIndex: currentQuestionIndex,
+            focusLossCount: focusLossCount,
+            timestamp: now
+        };
+        localStorage.setItem(`exam_backup_${studentData.examCode}_${studentData.number}`, JSON.stringify(backupData));
+    }
+    // ------------------------------------------------------------
 
     try {
         const now = Date.now();
         const remainingSeconds = Math.floor((examendTimeStamp - now) / 1000);
         
-        // Öğrenci verisi eksikse işlem yapma
         if (!validateStudentData(studentData)) return;
         
         const data = { 
             ...studentData, 
-            studentKey: `${sanitizeExamCode(studentData.examCode)}_${studentData.number}`, 
+            studentKey: `${studentData.examCode}_${studentData.number}`, 
             questionOrder, 
             selectedAnswers, 
             questionDurations, 
@@ -562,56 +609,108 @@ async function saveProgress(isAuto = false) {
             currentSessionDocId = ref.id; 
         }
         
-        // Başarılı kayıt sonrası "En son bunları kaydettim" diye hafızaya alıyoruz
         lastSavedAnswers = currentAnswersStr;
         lastSavedFocus = focusLossCount;
 
     } catch(e) { 
         console.warn("Autosave failed:", e.message); 
         
-        // --- BAŞLA: BURAYI EKLEYİN ---
         // Hata durumunda öğrenciye kırmızı uyarı göster
         const statusDiv = document.getElementById('connectionStatus');
-        statusDiv.classList.remove('hidden');
-        statusDiv.innerHTML = "⚠️ BAĞLANTI HATASI: Cevaplarınız kaydedilemiyor! İnternetinizi kontrol edin.";
-        statusDiv.className = "mb-4 text-xs font-bold text-center p-2 rounded border bg-red-600 text-white animate-pulse";
-        // --- BİTİR ---
+        if (statusDiv) {
+            statusDiv.classList.remove('hidden');
+            statusDiv.innerHTML = "⚠️ BAĞLANTI HATASI: Sunucuya ulaşılamıyor. Cevaplarınız cihazınıza yedekleniyor.";
+            statusDiv.className = "mb-4 text-xs font-bold text-center p-2 rounded border bg-red-600 text-white animate-pulse";
+        }
     }
 }
-        async function finishQuiz(force = false) {
-            if (isPreviewMode) {
-                if (timerInterval) clearInterval(timerInterval); if (autoSaveInterval) clearInterval(autoSaveInterval);
-                window.onblur = null; document.oncontextmenu = null;
-                alert("Önizleme modu tamamlandı. Panele dönülüyor.");
-                document.getElementById('app').className = 'app-card teacher-mode'; 
-                isPreviewMode = false; showDashboard(); window.changeTab('myexams'); return; 
-            }
-            if (timerInterval) clearInterval(timerInterval); if (autoSaveInterval) clearInterval(autoSaveInterval);
-            window.onblur = null; document.oncontextmenu = null;
-            if (!force && !confirm("Sınavı bitirmek istediğinize emin misiniz?")) { startTimer(); setupSecurityListeners(); return; }
 
-            document.getElementById('mainContentArea').innerHTML = `<div class="text-center py-10"><div class="loader mb-4"></div><p class="font-bold text-gray-600">Gönderiliyor...</p></div>`;
+// YENİ EKLENEN: Bağlantı yavaşlığında sonsuza kadar donmayı engelleyen fonksiyon
+const uploadWithTimeout = async (promise, ms) => {
+    let timeoutId;
+    const timeoutPromise = new Promise((_, reject) => {
+        timeoutId = setTimeout(() => reject(new Error('timeout')), ms);
+    });
+    const result = await Promise.race([promise, timeoutPromise]);
+    clearTimeout(timeoutId);
+    return result;
+};
+       async function finishQuiz(force = false) {
+    if (isPreviewMode) {
+        if (timerInterval) clearInterval(timerInterval); if (autoSaveInterval) clearInterval(autoSaveInterval);
+        window.onblur = null; document.oncontextmenu = null;
+        alert("Önizleme modu tamamlandı. Panele dönülüyor.");
+        document.getElementById('app').className = 'app-card teacher-mode'; 
+        isPreviewMode = false; showDashboard(); window.changeTab('myexams'); return; 
+    }
+
+    // --- YENİ EKLENEN: İNTERNET KONTROLÜ ---
+    if (!navigator.onLine) {
+        alert("⚠️ İNTERNET BAĞLANTINIZ KOPTU!\n\nŞu anda çevrimdışısınız. Lütfen sayfayı YENİLEMEYİN veya KAPATMAYIN. İnternet (Wi-Fi/Mobil Veri) bağlantınızın gelmesini bekleyin ve ardından tekrar 'Sınavı Bitir' butonuna basın.");
+        // Süre bittiği için otomatik tetiklendiyse sayacı durdur ama sayfayı değiştirme
+        if (force && timerInterval) clearInterval(timerInterval);
+        return; 
+    }
+    // ----------------------------------------
+
+    if (!force && !confirm("Sınavı bitirmek istediğinize emin misiniz?")) { 
+        // Eğer kullanıcı iptal derse, tekrar başlaması için sayaçları geri açmayın çünkü zaten kapanmadı.
+        return; 
+    }
+
+    // Artık işlemi başlattığımıza göre sayaçları durdurabiliriz
+    if (timerInterval) clearInterval(timerInterval); 
+    if (autoSaveInterval) clearInterval(autoSaveInterval);
+    window.onblur = null; document.oncontextmenu = null;
+
+    document.getElementById('mainContentArea').innerHTML = `<div class="text-center py-10"><div class="loader mb-4"></div><p class="font-bold text-gray-600">Cevaplarınız Gönderiliyor, Lütfen Bekleyin...</p></div>`;
+    
+    let currentQuestions = [];
+    try { const qSnap = await getDoc(getQuestionsRef(studentData.examCode)); currentQuestions = qSnap.exists() ? qSnap.data().questions_list : []; } catch(e) { currentQuestions = quizQuestions; }
+
+    let c=0, i=0, e=0;
+    for (let idx = 0; idx < questionOrder.length; idx++) {
+        const realQIdx = questionOrder[idx];
+        const correctQ = currentQuestions[realQIdx];
+        if(!correctQ) continue;
+        const sAns = String(selectedAnswers[realQIdx] || '').trim();
+        const cAns = String(correctQ.answer || '').trim();
+        if(!sAns) e++; else if (sAns.toLowerCase() === cAns.toLowerCase()) c++; else i++;
+    }
+    const score = (currentQuestions.length > 0) ? (c * 100 / currentQuestions.length).toFixed(2) : 0;
+    let ip = "Gizli"; try { const r = await fetch('https://api.ipify.org?format=json'); const d = await r.json(); ip = d.ip; } catch(err){}
+
+    const finalData = { ...studentData, studentKey: `${studentData.examCode}_${studentData.number}`, score, correct: c, incorrect: i, empty: e, timeSpent: currentExamConfig.time_limit - Math.floor((examendTimeStamp - Date.now())/1000), timestamp: serverTimestamp(), focusLossCount, ipAddress: ip, questionOrder, allAnswers: selectedAnswers, questionDurations };
+
+    if(isDbConnected) { 
+        try { 
+            // --- YENİ EKLENEN: TİMEOUT (ZAMAN AŞIMI) İLE GÖNDERİM ---
+            const submitPromise = addDoc(collection(db, "quiz_submissions"), finalData);
+            await uploadWithTimeout(submitPromise, 15000); // 15 saniye içinde gitmezse hata ver
             
-            let currentQuestions = [];
-            try { const qSnap = await getDoc(getQuestionsRef(studentData.examCode)); currentQuestions = qSnap.exists() ? qSnap.data().questions_list : []; } catch(e) { currentQuestions = quizQuestions; }
+            if (currentSessionDocId) await deleteDoc(doc(db, "active_sessions", currentSessionDocId)); 
+            
+            // Başarıyla gönderildi, cihazdaki yedeği (LocalStorage) temizle
+            localStorage.removeItem(`exam_backup_${studentData.examCode}_${studentData.number}`);
 
-            let c=0, i=0, e=0;
-            for (let idx = 0; idx < questionOrder.length; idx++) {
-                const realQIdx = questionOrder[idx];
-                const correctQ = currentQuestions[realQIdx];
-                if(!correctQ) continue;
-                const sAns = String(selectedAnswers[realQIdx] || '').trim();
-                const cAns = String(correctQ.answer || '').trim();
-                if(!sAns) e++; else if (sAns.toLowerCase() === cAns.toLowerCase()) c++; else i++;
+        } catch(e) { 
+            if (e.message === 'timeout') {
+                alert("⚠️ BAĞLANTI ZAMAN AŞIMI: İnternetiniz çok yavaş olduğu için gönderilemedi. Lütfen SAYFAYI YENİLEMEDEN biraz bekleyip tekrar deneyin.");
+                
+                // Ekranı eski haline getirmemiz lazım ki tekrar butona basabilsin
+                renderQuestion(); 
+                return; 
+            } else {
+                alert("Sunucu Hatası: Kaydedilemedi. Lütfen bağlantınızı kontrol edip tekrar deneyin."); 
+                renderQuestion();
+                return;
             }
-            const score = (currentQuestions.length > 0) ? (c * 100 / currentQuestions.length).toFixed(2) : 0;
-            let ip = "Gizli"; try { const r = await fetch('https://api.ipify.org?format=json'); const d = await r.json(); ip = d.ip; } catch(err){}
-
-            const finalData = { ...studentData, studentKey: `${studentData.examCode}_${studentData.number}`, score, correct: c, incorrect: i, empty: e, timeSpent: currentExamConfig.time_limit - Math.floor((examendTimeStamp - Date.now())/1000), timestamp: serverTimestamp(), focusLossCount, ipAddress: ip, questionOrder, allAnswers: selectedAnswers, questionDurations };
-
-            if(isDbConnected) { try { await addDoc(collection(db, "quiz_submissions"), finalData); if (currentSessionDocId) await deleteDoc(doc(db, "active_sessions", currentSessionDocId)); } catch(e) { alert("Sunucu Hatası: Kaydedilemedi."); } }
-            showStudentDashboard(finalData);
-        }
+        } 
+    }
+    
+    // Her şey başarılıysa sonuç ekranını göster
+    showStudentDashboard(finalData);
+}
 
         // --- YÖNETİCİ MODÜLÜ ---
         function showTeacherLogin() {
