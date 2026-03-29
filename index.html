@@ -646,7 +646,7 @@ const uploadWithTimeout = async (promise, ms) => {
 
     // --- YENİ EKLENEN: İNTERNET KONTROLÜ ---
     if (!navigator.onLine) {
-        alert("⚠️ İNTERNET BAĞLANTINIZ KOPTU!\n\nŞu anda çevrimdışısınız. Lütfen sayfayı YENİLEMEYİN veya KAPATMAYIN. İnternet (Wi-Fi/Mobil Veri) bağlantınızın gelmesini bekleyin ve ardından tekrar 'Sınavı Bitir' butonuna basın.");
+        alert("⚠️ İNTERNET BAĞLANTINIZ KOPTU!\n\nŞu anda çevrimdışısınız. Lütfen sayfayı YENİLEMEYİN veya KAPATMAYIN. İnternet (Wi-Fi/Mobil Veri) bağlantınızı kontrol edin,bağlantınızı yeniden oluşturun, internetin gelmesini bekleyin ve ardından tekrar 'Sınavı Bitir' butonuna basın.");
         // Süre bittiği için otomatik tetiklendiyse sayacı durdur ama sayfayı değiştirme
         if (force && timerInterval) clearInterval(timerInterval);
         return; 
